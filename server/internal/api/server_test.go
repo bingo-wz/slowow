@@ -268,3 +268,30 @@ func TestScheduleRecognitionRequiresConfirmationAndBoundAccount(t *testing.T) {
 		t.Fatalf("正常识别: %d", got)
 	}
 }
+
+func TestLegacyExcelRecognitionShowsMergeWarning(t *testing.T) {
+	dir := t.TempDir()
+	digest := sha256.Sum256([]byte("12345678"))
+	hashFile := filepath.Join(dir, "pair.hash")
+	if err := os.WriteFile(hashFile, []byte(hex.EncodeToString(digest[:])), 0600); err != nil {
+		t.Fatal(err)
+	}
+	gate, _ := recognition.NewGate(hashFile, filepath.Join(dir, "owner"))
+	if err := gate.Claim("a", "12345678", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	model := &fakeRecognizer{}
+	server := New(twoOwnersVerifier{}, &fakeStore{}, nil, model, gate)
+	data, err := os.ReadFile("../recognition/testdata/fictional.xls")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := json.Marshal(scheduleRequest{Confirmed: true, Files: []scheduleFile{{Kind: "xls", Data: data}}})
+	request := httptest.NewRequest(http.MethodPost, "/v1/recognize/schedule", bytes.NewReader(body))
+	request.Header.Set("Authorization", "Bearer a")
+	result := httptest.NewRecorder()
+	server.ServeHTTP(result, request)
+	if result.Code != http.StatusOK || !strings.Contains(result.Body.String(), "旧版 XLS") {
+		t.Fatalf("旧版表格缺少合并单元格提示: %d %s", result.Code, result.Body.String())
+	}
+}

@@ -51,6 +51,7 @@ func (s *Server) recognizeSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 	var images []recognition.Image
 	var tables []string
+	legacyExcel := false
 	total := 0
 	for _, file := range input.Files {
 		total += len(file.Data)
@@ -72,6 +73,7 @@ func (s *Server) recognizeSchedule(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			tables = append(tables, table)
+			legacyExcel = legacyExcel || file.Kind == "xls"
 		default:
 			writeError(w, http.StatusBadRequest, "invalid_file", "请选择图片、PDF 或 Excel 文件。")
 			return
@@ -89,6 +91,9 @@ func (s *Server) recognizeSchedule(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.recognitionError(w, err)
 		return
+	}
+	if legacyExcel {
+		result.Warnings = append(result.Warnings, "旧版 XLS 的合并单元格可能不完整，请特别核对星期和对应课程；如有误可另存为 XLSX 后重试。")
 	}
 	writeJSON(w, http.StatusOK, result)
 }
