@@ -1,0 +1,133 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "7ee915cdc9a02a0b2957c632a62109c5",
+    "entities": [
+      {
+        "tableName": "records",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`accountId` TEXT NOT NULL, `kind` TEXT NOT NULL, `id` TEXT NOT NULL, `payload` TEXT NOT NULL, `deleted` INTEGER NOT NULL, `serverVersion` INTEGER NOT NULL, `operationId` TEXT NOT NULL, `dirty` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `conflictPayload` TEXT, `conflictDeleted` INTEGER NOT NULL, `conflictVersion` INTEGER, PRIMARY KEY(`accountId`, `kind`, `id`))",
+        "fields": [
+          {
+            "fieldPath": "accountId",
+            "columnName": "accountId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "payload",
+            "columnName": "payload",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deleted",
+            "columnName": "deleted",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverVersion",
+            "columnName": "serverVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "operationId",
+            "columnName": "operationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dirty",
+            "columnName": "dirty",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "conflictPayload",
+            "columnName": "conflictPayload",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "conflictDeleted",
+            "columnName": "conflictDeleted",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "conflictVersion",
+            "columnName": "conflictVersion",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "accountId",
+            "kind",
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_records_accountId_dirty",
+            "unique": false,
+            "columnNames": [
+              "accountId",
+              "dirty"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_records_accountId_dirty` ON `${TABLE_NAME}` (`accountId`, `dirty`)"
+          }
+        ]
+      },
+      {
+        "tableName": "sync_cursors",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`accountId` TEXT NOT NULL, `sequence` INTEGER NOT NULL, PRIMARY KEY(`accountId`))",
+        "fields": [
+          {
+            "fieldPath": "accountId",
+            "columnName": "accountId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sequence",
+            "columnName": "sequence",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "accountId"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '7ee915cdc9a02a0b2957c632a62109c5')"
+    ]
+  }
+}

@@ -1,0 +1,17 @@
+# 将本段追加到现有 Caddyfile；已有站点必须原样保留。
+{$MANMAN_PUBLIC_HOST} {
+    tls {
+        issuer acme {
+            dir https://acme-v02.api.letsencrypt.org/directory
+            profile shortlived
+        }
+    }
+    # 此目录只存放可公开分发的开源字体和许可文件。
+    handle_path /fonts/* {
+        root * /srv/manman-fonts
+        file_server
+    }
+    handle {
+        reverse_proxy 127.0.0.1:8088
+    }
+}
