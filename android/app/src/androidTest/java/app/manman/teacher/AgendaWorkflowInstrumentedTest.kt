@@ -19,7 +19,7 @@ import app.manman.teacher.data.Notice
 import app.manman.teacher.data.RecordCodec
 import app.manman.teacher.data.RecordKind
 import app.manman.teacher.data.WorkTask
-import app.manman.teacher.domain.LunchRules
+import app.manman.teacher.domain.AppTime
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -47,7 +47,7 @@ class AgendaWorkflowInstrumentedTest {
         val app = ApplicationProvider.getApplicationContext<ManmanApplication>()
         val account = account(app)
         val repository = ClassRepository(app.database)
-        val today = LocalDate.now(LunchRules.defaultZone)
+        val today = LocalDate.now(AppTime.zone)
         val now = Instant.now()
         val ids = (0..2).map { "agenda-${UUID.randomUUID()}" }
         val titles = listOf("准备作业", "检查作业", "布置作业")
@@ -77,12 +77,13 @@ class AgendaWorkflowInstrumentedTest {
                     }
                 }
                 val label = today.format(DateTimeFormatter.ofPattern("M月d日")) + " · 今天"
+                assertFalse(device.hasObject(By.text(label)))
+                byDescription(device, "全部待办").click()
+                assertTrue(device.wait(Until.hasObject(By.text("全部待办")), 10_000))
                 byText(device, label).click()
                 assertTrue(device.wait(Until.gone(By.text("布置作业")), 5_000))
                 byText(device, label).click()
                 assertTrue(device.wait(Until.hasObject(By.text("布置作业")), 5_000))
-                byDescription(device, "全部待办").click()
-                assertTrue(device.wait(Until.hasObject(By.text("全部待办")), 10_000))
                 scrollTo(device, "明天的虚构待办")
                 device.takeScreenshot(File(app.cacheDir, "agenda-workflow.png"))
                 device.pressBack()
@@ -113,12 +114,16 @@ class AgendaWorkflowInstrumentedTest {
         val original = MarkingRecord(id, "虚构班级事项", "有", "没有", savedAt, listOf(
             MarkingStudent("a", "虚构甲", true), MarkingStudent("b", "虚构乙", false), MarkingStudent("c", "虚构丙", true)))
         repository.saveMarking(account, original)
+        repository.saveMarking(account, original.copy(id = "marking-${UUID.randomUUID()}", title = "同日另一事项", createdAt = savedAt.plusSeconds(60)))
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         val oldScale = device.executeShellCommand("settings get system font_scale").trim()
         device.executeShellCommand("settings put system font_scale 1.0")
         try {
             ActivityScenario.launch(MainActivity::class.java).use {
                 byText(device, "记录").click()
+                scrollTo(device, "2026年10月5日").click()
+                assertTrue(device.wait(Until.gone(By.text("虚构班级事项")), 5_000))
+                byText(device, "2026年10月5日").click()
                 scrollTo(device, "虚构班级事项").click()
                 assertTrue(device.wait(Until.hasObject(By.text("2026年10月5日 10:00")), 10_000))
                 val clipboard = app.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -152,7 +157,7 @@ class AgendaWorkflowInstrumentedTest {
         val owner = account(app)
         val repository = ClassRepository(app.database)
         val now = Instant.now()
-        val today = LocalDate.now(LunchRules.defaultZone)
+        val today = LocalDate.now(AppTime.zone)
         val tasks = listOf(
             WorkTask("large-${UUID.randomUUID()}", "准备明天的语文作业", null, null, null, false, now, today, -2),
             WorkTask("large-${UUID.randomUUID()}", "整理班级通知", null, null, null, true, now, today, -1),
@@ -164,11 +169,13 @@ class AgendaWorkflowInstrumentedTest {
         try {
             ActivityScenario.launch(MainActivity::class.java).use {
                 assertTrue(device.wait(Until.hasObject(By.text("今日待办")), 20_000))
-                val classAction = byDescription(device, "班级").visibleBounds
+                val menu = byDescription(device, "本周菜单").visibleBounds
+                val notice = byDescription(device, "学校通知").visibleBounds
                 val settings = byDescription(device, "设置").visibleBounds
                 val all = byDescription(device, "全部待办").visibleBounds
                 val add = byDescription(device, "新建待办").visibleBounds
-                assertFalse(Rect.intersects(classAction, settings))
+                assertFalse(Rect.intersects(menu, notice))
+                assertFalse(Rect.intersects(notice, settings))
                 assertFalse(Rect.intersects(all, add))
                 assertTrue(device.wait(Until.hasObject(By.text("准备明天的语文作业")), 10_000))
                 assertTrue(device.wait(Until.hasObject(By.text("整理班级通知")), 10_000))
@@ -188,7 +195,7 @@ class AgendaWorkflowInstrumentedTest {
         val owner = account(app)
         val repository = ClassRepository(app.database)
         val now = Instant.now()
-        val today = LocalDate.now(LunchRules.defaultZone)
+        val today = LocalDate.now(AppTime.zone)
         val notice = Notice("notice-${UUID.randomUUID()}", "虚构通知", "虚构通知原文", now)
         val independent = WorkTask("task-${UUID.randomUUID()}", "独立待办", null, null, null, false, now, today, -10)
         val linked = WorkTask("task-${UUID.randomUUID()}", "关联待办", notice.id, null, null, false, now, today, -9)

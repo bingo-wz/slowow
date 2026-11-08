@@ -8,9 +8,7 @@ import app.manman.teacher.auth.AuthException
 import app.manman.teacher.auth.VerificationRequest
 import app.manman.teacher.data.ClassRepository
 import app.manman.teacher.data.LocalRecord
-import app.manman.teacher.data.LunchReview
 import app.manman.teacher.data.MarkingRecord
-import app.manman.teacher.data.MealOverrideRecord
 import app.manman.teacher.data.MenuWeek
 import app.manman.teacher.data.AttachmentMeta
 import app.manman.teacher.data.TimeSlot
@@ -20,9 +18,6 @@ import app.manman.teacher.data.WorkTask
 import app.manman.teacher.data.RecordCodec
 import app.manman.teacher.data.RecordKind
 import app.manman.teacher.domain.Leave
-import app.manman.teacher.domain.LunchRules
-import app.manman.teacher.domain.LunchStudent
-import app.manman.teacher.domain.MealOverride
 import app.manman.teacher.domain.Student
 import app.manman.teacher.sync.SyncPhase
 import app.manman.teacher.sync.SyncResult
@@ -40,7 +35,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.time.LocalDate
-import java.time.LocalTime
 
 data class MainUiState(
     val restoring: Boolean = true,
@@ -51,8 +45,6 @@ data class MainUiState(
     val message: String? = null,
     val students: List<Student> = emptyList(),
     val leaves: List<Leave> = emptyList(),
-    val overrides: List<MealOverrideRecord> = emptyList(),
-    val reviews: List<LunchReview> = emptyList(),
     val markings: List<MarkingRecord> = emptyList(),
     val menuWeeks: List<MenuWeek> = emptyList(),
     val attachments: List<AttachmentMeta> = emptyList(),
@@ -62,9 +54,7 @@ data class MainUiState(
     val notices: List<Notice> = emptyList(),
     val tasks: List<WorkTask> = emptyList(),
     val noticeSuggestion: NoticeSuggestion? = null,
-    val cutoff: LocalTime = LunchRules.defaultCutoff,
     val lessonReminderMinutes: Int? = null,
-    val lunchReminderEnabled: Boolean = false,
     val pendingCount: Int = 0,
     val conflicts: List<LocalRecord> = emptyList(),
     val unreadableCount: Int = 0,
@@ -76,6 +66,7 @@ class MainViewModel(private val application: ManmanApplication) : ViewModel() {
     private val repository = ClassRepository(application.database)
     private val mutableState = MutableStateFlow(MainUiState())
     private var manualSync: Job? = null
+    private var reminderRefresh: Job? = null
     val state: StateFlow<MainUiState> = mutableState.asStateFlow()
 
     init {
@@ -87,7 +78,7 @@ class MainViewModel(private val application: ManmanApplication) : ViewModel() {
             auth.session.map { it?.accountId }.distinctUntilChanged().collectLatest { accountId ->
                 if (accountId == null) {
                     mutableState.update { MainUiState(restoring = false, error = it.error, message = it.message) }
-                    application.reminders.reschedule()
+                    refreshReminders()
                 } else {
                     mutableState.update { it.copy(accountId = accountId, verification = null, error = null) }
                     SyncWorker.enqueue(application, accountId)
@@ -98,7 +89,7 @@ class MainViewModel(private val application: ManmanApplication) : ViewModel() {
                             .map { Triple(it.kind, it.id, it.payload) }.sortedBy { it.first + it.second }
                         if (relevant != reminderRecords) {
                             reminderRecords = relevant
-                            application.reminders.reschedule()
+                            refreshReminders()
                         }
                     }
                 }
@@ -146,15 +137,6 @@ class MainViewModel(private val application: ManmanApplication) : ViewModel() {
         repository.saveLeave(requireAccount(), leave)
         onDone()
         mutableState.update { it.copy(message = if (leave.cancelled) "请假已撤销。" else "请假已记录。") }
-    }
-
-    fun setMealOverride(day: LocalDate, studentId: String, value: MealOverride?) = perform {
-        repository.saveMealOverride(requireAccount(), day, studentId, value)
-    }
-
-    fun confirmLunch(day: LocalDate, students: List<LunchStudent>) = perform {
-        repository.confirmLunch(requireAccount(), day, students)
-        mutableState.update { it.copy(message = "午餐人数已核验。") }
     }
 
     fun saveMarking(record: MarkingRecord, onDone: () -> Unit) = perform {
@@ -294,20 +276,9 @@ class MainViewModel(private val application: ManmanApplication) : ViewModel() {
         mutableState.update { it.copy(message = "待办已删除。") }
     }
 
-    fun saveCutoff(value: LocalTime, onDone: () -> Unit) = perform {
-        repository.saveCutoff(requireAccount(), value)
-        onDone()
-        mutableState.update { it.copy(message = "午餐核验时间已更新。") }
-    }
-
     fun saveLessonReminder(minutes: Int?) = perform {
         repository.saveLessonReminder(requireAccount(), minutes)
         mutableState.update { it.copy(message = "课程提醒设置已更新。") }
-    }
-
-    fun saveLunchReminder(enabled: Boolean) = perform {
-        repository.saveLunchReminder(requireAccount(), enabled)
-        mutableState.update { it.copy(message = "午餐提醒设置已更新。") }
     }
 
     fun resolveConflict(record: LocalRecord, keepLocal: Boolean) = perform {
@@ -333,7 +304,16 @@ class MainViewModel(private val application: ManmanApplication) : ViewModel() {
     }
 
     fun refreshReminders() {
-        viewModelScope.launch { application.reminders.reschedule() }
+        reminderRefresh?.cancel()
+        reminderRefresh = viewModelScope.launch {
+            try {
+                application.reminders.reschedule()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                mutableState.update { it.copy(error = "提醒暂时无法更新，请稍后重试。") }
+            }
+        }
     }
 
     private fun requireAccount(): String = state.value.accountId ?: throw IllegalStateException("请先登录。")
@@ -371,8 +351,6 @@ class MainViewModel(private val application: ManmanApplication) : ViewModel() {
             }
         val students = decode(RecordKind.STUDENT, RecordCodec::student).sortedBy(Student::position)
         val leaves = decode(RecordKind.LEAVE, RecordCodec::leave)
-        val overrides = decode(RecordKind.MEAL_OVERRIDE, RecordCodec::mealOverride)
-        val reviews = decode(RecordKind.LUNCH_REVIEW, RecordCodec::lunchReview).sortedByDescending(LunchReview::confirmedAt)
         val markings = decode(RecordKind.MARKING, RecordCodec::marking).sortedByDescending(MarkingRecord::createdAt)
         val menuWeeks = decode(RecordKind.MENU_WEEK, RecordCodec::menuWeek)
         val attachments = decode(RecordKind.ATTACHMENT, RecordCodec::attachment)
@@ -380,20 +358,15 @@ class MainViewModel(private val application: ManmanApplication) : ViewModel() {
         val lessons = decode(RecordKind.LESSON, RecordCodec::lesson)
         val notices = decode(RecordKind.NOTICE, RecordCodec::notice).sortedByDescending(Notice::createdAt)
         val tasks = decode(RecordKind.TASK, RecordCodec::task).sortedByDescending(WorkTask::createdAt)
-        val cutoff = visible.firstOrNull { it.kind == RecordKind.SETTINGS && it.id == "main" }?.let {
-            try { LocalTime.parse(JSONObject(it.payload).getString("lunchCutoff")) }
-            catch (_: Exception) { unreadable++; LunchRules.defaultCutoff }
-        } ?: LunchRules.defaultCutoff
         val reminderSettings = visible.firstOrNull { it.kind == RecordKind.SETTINGS && it.id == "reminders" }?.let {
             try { JSONObject(it.payload) } catch (_: Exception) { unreadable++; null }
         }
         val lessonReminder = reminderSettings?.optInt("lessonMinutes", -1)?.takeIf { it in 0..60 }
-        val lunchReminder = reminderSettings?.optBoolean("lunchEnabled", false) ?: false
         mutableState.update { it.copy(
-            students = students, leaves = leaves, overrides = overrides, reviews = reviews, markings = markings,
+            students = students, leaves = leaves, markings = markings,
             menuWeeks = menuWeeks, attachments = attachments,
             timeSlots = timeSlots, lessons = lessons, notices = notices, tasks = tasks,
-            cutoff = cutoff, lessonReminderMinutes = lessonReminder, lunchReminderEnabled = lunchReminder,
+            lessonReminderMinutes = lessonReminder,
             pendingCount = records.count(LocalRecord::dirty),
             conflicts = records.filter { record -> record.conflictVersion != null }, unreadableCount = unreadable,
         ) }

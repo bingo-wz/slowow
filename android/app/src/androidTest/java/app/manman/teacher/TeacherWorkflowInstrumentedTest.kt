@@ -22,7 +22,7 @@ import app.manman.teacher.data.TimeSlot
 import app.manman.teacher.data.WorkTask
 import app.manman.teacher.domain.Leave
 import app.manman.teacher.domain.LeavePeriod
-import app.manman.teacher.domain.LunchRules
+import app.manman.teacher.domain.AppTime
 import app.manman.teacher.domain.Student
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.delay
@@ -40,7 +40,7 @@ import java.util.UUID
 
 @RunWith(AndroidJUnit4::class)
 class TeacherWorkflowInstrumentedTest {
-    @Test fun classLunchAndMarkingCanBeUsedOnDevice() = runBlocking {
+    @Test fun classAbsenceAndMarkingCanBeUsedOnDevice() = runBlocking {
         val application = ApplicationProvider.getApplicationContext<ManmanApplication>()
         assumeTrue(InstrumentationRegistry.getArguments().getString("teacherFixture") == "1")
         application.auth.restore()
@@ -50,20 +50,20 @@ class TeacherWorkflowInstrumentedTest {
         val repository = ClassRepository(application.database)
         val students = (1..52).map { index -> Student("student-$index", "学生%02d".format(index), normallyEatsAtSchool = index > 3, position = index) }
         students.forEach { repository.saveStudent(account, it) }
-        val today = LocalDate.now(LunchRules.defaultZone)
+        val today = LocalDate.now(AppTime.zone)
         val slot = TimeSlot("slot-1", "第一节", LocalTime.of(8, 0), LocalTime.of(8, 40))
         repository.saveTimeSlot(account, slot)
         repository.saveLesson(account, Lesson("lesson-1", today.dayOfWeek.value, slot.id, "语文"))
         listOf(4, 5).forEach { index ->
             repository.saveLeave(account, Leave("leave-$index", "student-$index", today, today, LeavePeriod.ALL_DAY,
-                today.atTime(9, 0).atZone(LunchRules.defaultZone).toInstant()))
+                today.atTime(9, 0).atZone(AppTime.zone).toInstant()))
         }
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         val oldScale = device.executeShellCommand("settings get system font_scale").trim()
         device.executeShellCommand("settings put system font_scale 1.0")
         val scenario = ActivityScenario.launch(MainActivity::class.java)
         try {
-            val homeVisible = device.wait(Until.hasObject(By.desc("午餐核验")), 20_000)
+            val homeVisible = device.wait(Until.hasObject(By.desc("本周菜单")), 20_000)
             if (!homeVisible) {
                 device.takeScreenshot(File(application.cacheDir, "manman-diagnostic.png"))
                 device.dumpWindowHierarchy(File(application.cacheDir, "manman-diagnostic.xml"))
@@ -72,14 +72,15 @@ class TeacherWorkflowInstrumentedTest {
             assertTrue(device.wait(Until.hasObject(By.text("今日待办")), 10_000))
             assertTrue(device.takeScreenshot(File(application.cacheDir, "manman-home.png")))
             device.executeShellCommand("screencap -p /sdcard/Download/manman-home-current.png")
-            tapDescription(device, "午餐核验")
-            assertTrue(device.wait(Until.hasObject(By.text("47 人")), 10_000))
-            assertTrue(device.wait(Until.hasObject(By.text("不在校用餐 · 5 人")), 10_000))
+            tapText(device, "记录")
+            tapText(device, "不在校用餐名单")
+            assertTrue(device.wait(Until.hasObject(By.text("共 5 人")), 10_000))
             assertNotNull(device.findObject(By.text("学生04")))
             assertTrue(device.takeScreenshot(File(application.cacheDir, "manman-lunch.png")))
             device.pressBack()
-            assertTrue(device.wait(Until.hasObject(By.desc("班级")), 10_000))
-            tapDescription(device, "班级")
+            tapText(device, "今天")
+            tapDescription(device, "设置")
+            tapText(device, "班级与学生")
             assertTrue(device.wait(Until.hasObject(By.text("班级标记")), 10_000))
             tapText(device, "班级标记")
             assertTrue(device.wait(Until.hasObject(By.text("保存记录")), 10_000))
@@ -87,8 +88,7 @@ class TeacherWorkflowInstrumentedTest {
             device.executeShellCommand("screencap -p /sdcard/Download/manman-marking-current.png")
             device.pressBack()
             device.pressBack()
-            assertTrue(device.wait(Until.hasObject(By.desc("课程与作息")), 10_000))
-            tapDescription(device, "课程与作息")
+            tapText(device, "课程与作息")
             assertTrue(device.wait(Until.hasObject(By.text("第一节")), 10_000))
             assertTrue(device.wait(Until.hasObject(By.text("语文")), 10_000))
             assertTrue(!device.hasObject(By.textContains("导入课程")))
@@ -108,6 +108,7 @@ class TeacherWorkflowInstrumentedTest {
             device.findObject(By.clazz("android.widget.EditText")).text = "班会"
             tapText(device, "保存")
             assertTrue(device.wait(Until.hasObject(By.text("班会")), 10_000))
+            device.pressBack()
             device.pressBack()
             scenario.onActivity { activity ->
                 activity.startActivity(Intent(activity, MainActivity::class.java).setAction(Intent.ACTION_SEND)

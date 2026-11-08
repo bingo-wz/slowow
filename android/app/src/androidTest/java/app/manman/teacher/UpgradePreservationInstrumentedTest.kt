@@ -38,6 +38,9 @@ class UpgradePreservationInstrumentedTest {
         val marking = RecordCodec.marking(records.single { it.kind == RecordKind.MARKING && it.id == "legacy-marking" })
         assertEquals("虚构学生", marking.students.single().name)
         assertTrue(!marking.students.single().first)
+        assertTrue(records.any { it.kind == RecordKind.LUNCH_REVIEW && it.id == "legacy-review" && !it.deleted })
+        assertTrue(records.any { it.kind == RecordKind.MEAL_OVERRIDE && it.id == "legacy-override" && !it.deleted })
+        assertTrue(records.any { it.kind == RecordKind.SETTINGS && it.id == "main" && !it.deleted })
         val week = RecordCodec.menuWeek(records.single { it.kind == RecordKind.MENU_WEEK && !it.deleted })
         val image = RecordCodec.attachment(records.single { it.kind == RecordKind.ATTACHMENT && it.id == week.attachmentId })
         val preview = app.attachments.preview(account, image) { throw AssertionError("本机图片不应联网") }

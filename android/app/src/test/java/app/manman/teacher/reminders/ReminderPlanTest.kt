@@ -3,7 +3,7 @@ package app.manman.teacher.reminders
 import app.manman.teacher.data.Lesson
 import app.manman.teacher.data.TimeSlot
 import app.manman.teacher.data.WorkTask
-import app.manman.teacher.domain.LunchRules
+import app.manman.teacher.domain.AppTime
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -14,7 +14,7 @@ import java.time.LocalDate
 import java.time.LocalTime
 
 class ReminderPlanTest {
-    private fun at(day: String, hour: Int, minute: Int): Instant = LocalDate.parse(day).atTime(hour, minute).atZone(LunchRules.defaultZone).toInstant()
+    private fun at(day: String, hour: Int, minute: Int): Instant = LocalDate.parse(day).atTime(hour, minute).atZone(AppTime.zone).toInstant()
 
     @Test fun completedTasksAndPastRemindersAreNotScheduled() {
         val now = at("2026-11-09", 8, 0)
@@ -45,10 +45,4 @@ class ReminderPlanTest {
         assertFalse(ReminderPlan.hasDue(emptyList(), listOf(lesson), listOf(slot), 10, reminder.plusSeconds(1), reminder.plusSeconds(60)))
     }
 
-    @Test fun lunchReminderSkipsWeekendsAndUsesTheConfiguredTime() {
-        val saturday = at("2026-11-07", 10, 0)
-        val lunch = LocalTime.of(12, 30)
-        assertEquals(at("2026-11-09", 12, 30), ReminderPlan.next(emptyList(), emptyList(), emptyList(), null, saturday, lunch))
-        assertEquals(at("2026-11-09", 12, 10), ReminderPlan.next(emptyList(), emptyList(), emptyList(), null, saturday, LocalTime.of(12, 10)))
-    }
 }

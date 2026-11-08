@@ -2,15 +2,11 @@ package app.manman.teacher.data
 
 import androidx.room.withTransaction
 import app.manman.teacher.domain.Leave
-import app.manman.teacher.domain.LunchStudent
-import app.manman.teacher.domain.MealOverride
 import app.manman.teacher.domain.Student
 import app.manman.teacher.domain.TaskOrdering
 import kotlinx.coroutines.flow.Flow
 import org.json.JSONObject
-import java.time.Instant
 import java.time.LocalDate
-import java.time.LocalTime
 import java.util.UUID
 
 class ClassRepository(private val database: ManmanDatabase) {
@@ -39,17 +35,6 @@ class ClassRepository(private val database: ManmanDatabase) {
         require(!leave.end.isBefore(leave.start)) { "结束日期不能早于开始日期。" }
         require(leave.end.toEpochDay() - leave.start.toEpochDay() <= 366) { "一次请假最多记录 367 天。" }
         dao.saveLocal(accountId, RecordKind.LEAVE, leave.id, RecordCodec.leave(leave))
-    }
-
-    suspend fun saveMealOverride(accountId: String, day: LocalDate, studentId: String, value: MealOverride?) {
-        val id = UUID.nameUUIDFromBytes("meal:$day:$studentId".toByteArray(Charsets.UTF_8)).toString()
-        val record = MealOverrideRecord(id, day, studentId, value ?: MealOverride.EAT)
-        dao.saveLocal(accountId, RecordKind.MEAL_OVERRIDE, id, RecordCodec.mealOverride(record), deleted = value == null)
-    }
-
-    suspend fun confirmLunch(accountId: String, day: LocalDate, students: List<LunchStudent>) {
-        val review = LunchReview(UUID.randomUUID().toString(), day, Instant.now(), students)
-        dao.saveLocal(accountId, RecordKind.LUNCH_REVIEW, review.id, RecordCodec.lunchReview(review))
     }
 
     suspend fun saveMarking(accountId: String, record: MarkingRecord) {
@@ -134,25 +119,12 @@ class ClassRepository(private val database: ManmanDatabase) {
         }
     }
 
-    suspend fun saveCutoff(accountId: String, cutoff: LocalTime) {
-        val payload = JSONObject().put("lunchCutoff", cutoff.toString()).toString()
-        dao.saveLocal(accountId, RecordKind.SETTINGS, "main", payload)
-    }
-
     suspend fun saveLessonReminder(accountId: String, minutes: Int?) {
         require(minutes == null || minutes in 0..60) { "提醒时间设置无效。" }
         database.withTransaction {
             val current = dao.find(accountId, RecordKind.SETTINGS, "reminders")
             val payload = current?.let { JSONObject(it.payload) } ?: JSONObject()
             dao.saveLocal(accountId, RecordKind.SETTINGS, "reminders", payload.put("lessonMinutes", minutes ?: -1).toString())
-        }
-    }
-
-    suspend fun saveLunchReminder(accountId: String, enabled: Boolean) {
-        database.withTransaction {
-            val current = dao.find(accountId, RecordKind.SETTINGS, "reminders")
-            val payload = current?.let { JSONObject(it.payload) } ?: JSONObject()
-            dao.saveLocal(accountId, RecordKind.SETTINGS, "reminders", payload.put("lunchEnabled", enabled).toString())
         }
     }
 

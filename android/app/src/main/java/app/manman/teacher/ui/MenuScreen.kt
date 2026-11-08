@@ -16,7 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import app.manman.teacher.MainUiState
 import app.manman.teacher.MainViewModel
-import app.manman.teacher.domain.LunchRules
+import app.manman.teacher.domain.AppTime
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -24,7 +24,7 @@ import java.time.temporal.TemporalAdjusters
 
 @Composable
 fun MenuScreen(state: MainUiState, viewModel: MainViewModel, back: () -> Unit) {
-    val start = LocalDate.now(LunchRules.defaultZone).with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+    val start = LocalDate.now(AppTime.zone).with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
     val menu = state.menuWeeks.firstOrNull { it.start == start }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) viewModel.saveMenuImage(start, uri)

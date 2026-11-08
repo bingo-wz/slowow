@@ -1,10 +1,7 @@
 package app.manman.teacher.data
 
-import app.manman.teacher.domain.ExclusionReason
 import app.manman.teacher.domain.Leave
 import app.manman.teacher.domain.LeavePeriod
-import app.manman.teacher.domain.LunchStudent
-import app.manman.teacher.domain.MealOverride
 import app.manman.teacher.domain.Student
 import org.json.JSONArray
 import org.json.JSONObject
@@ -15,6 +12,7 @@ import java.time.LocalTime
 object RecordKind {
     const val STUDENT = "student"
     const val LEAVE = "leave"
+    // 保留旧记录类型，以便已有数据继续同步和处理冲突。
     const val MEAL_OVERRIDE = "meal_override"
     const val LUNCH_REVIEW = "lunch_review"
     const val MARKING = "marking"
@@ -29,8 +27,6 @@ object RecordKind {
     const val SETTINGS = "settings"
 }
 
-data class MealOverrideRecord(val id: String, val day: LocalDate, val studentId: String, val value: MealOverride)
-data class LunchReview(val id: String, val day: LocalDate, val confirmedAt: Instant, val students: List<LunchStudent>)
 data class MarkingStudent(val studentId: String, val name: String, val first: Boolean)
 data class MarkingRecord(
     val id: String,
@@ -153,35 +149,6 @@ object RecordCodec {
         Leave(record.id, it.getString("studentId"), LocalDate.parse(it.getString("start")),
             LocalDate.parse(it.getString("end")), LeavePeriod.valueOf(it.getString("period")),
             Instant.parse(it.getString("recordedAt")), it.optBoolean("cancelled", false))
-    }
-
-    fun mealOverride(value: MealOverrideRecord): String = JSONObject()
-        .put("day", value.day.toString()).put("studentId", value.studentId).put("value", value.value.name).toString()
-
-    fun mealOverride(record: LocalRecord): MealOverrideRecord = JSONObject(record.payload).let {
-        MealOverrideRecord(record.id, LocalDate.parse(it.getString("day")), it.getString("studentId"),
-            MealOverride.valueOf(it.getString("value")))
-    }
-
-    fun lunchReview(value: LunchReview): String = JSONObject()
-        .put("day", value.day.toString()).put("confirmedAt", value.confirmedAt.toString())
-        .put("students", JSONArray().apply {
-            value.students.forEach { student ->
-                put(JSONObject().put("studentId", student.studentId).put("name", student.name)
-                    .put("eats", student.eats).put("reason", student.reason?.name ?: JSONObject.NULL))
-            }
-        }).toString()
-
-    fun lunchReview(record: LocalRecord): LunchReview = JSONObject(record.payload).let { root ->
-        val array = root.getJSONArray("students")
-        val students = (0 until array.length()).map { index ->
-            val item = array.getJSONObject(index)
-            val reason = item.optString("reason").takeIf { it.isNotBlank() && it != "null" }
-            LunchStudent(item.getString("studentId"), item.getString("name"), item.getBoolean("eats"),
-                reason?.let(ExclusionReason::valueOf))
-        }
-        LunchReview(record.id, LocalDate.parse(root.getString("day")),
-            Instant.parse(root.getString("confirmedAt")), students)
     }
 
     fun marking(value: MarkingRecord): String = JSONObject()

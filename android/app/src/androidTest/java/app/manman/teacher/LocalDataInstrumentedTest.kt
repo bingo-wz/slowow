@@ -87,9 +87,7 @@ class LocalDataInstrumentedTest {
 
         val repository = ClassRepository(application.database)
         repository.saveLessonReminder(owner, 5)
-        repository.saveLunchReminder(owner, true)
         val settings = JSONObject(dao.find(owner, RecordKind.SETTINGS, "reminders")!!.payload)
         assertEquals(5, settings.getInt("lessonMinutes"))
-        assertTrue(settings.getBoolean("lunchEnabled"))
     }
 }

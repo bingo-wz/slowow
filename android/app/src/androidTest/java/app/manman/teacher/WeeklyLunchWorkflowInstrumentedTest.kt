@@ -11,7 +11,8 @@ import androidx.test.uiautomator.Until
 import app.manman.teacher.data.ClassRepository
 import app.manman.teacher.data.RecordCodec
 import app.manman.teacher.data.RecordKind
-import app.manman.teacher.domain.LunchRules
+import app.manman.teacher.domain.AppTime
+import app.manman.teacher.domain.MealAbsenceRules
 import app.manman.teacher.domain.Student
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -38,8 +39,10 @@ class WeeklyLunchWorkflowInstrumentedTest {
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         val scenario = ActivityScenario.launch(MainActivity::class.java)
         try {
-            assertTrue(device.wait(Until.hasObject(By.desc("班级")), 20_000))
-            device.findObject(By.desc("班级")).click()
+            assertTrue(device.wait(Until.hasObject(By.desc("设置")), 20_000))
+            device.findObject(By.desc("设置")).click()
+            assertTrue(device.wait(Until.hasObject(By.text("班级与学生")), 10_000))
+            device.findObject(By.text("班级与学生")).click()
             assertTrue(device.wait(Until.hasObject(By.text("叶小禾")), 10_000))
             device.findObject(By.text("叶小禾")).click()
             scrollTo(device, "周四").click()
@@ -49,11 +52,14 @@ class WeeklyLunchWorkflowInstrumentedTest {
             val record = requireNotNull(application.database.records().find(account, RecordKind.STUDENT, "fictional-y"))
             val student = RecordCodec.student(record)
             assertEquals(setOf(1, 2, 3, 6, 7), student.schoolLunchDays)
-            assertTrue(LunchRules.calculate(LocalDate.of(2026, 11, 12), listOf(student), emptyList()).excluded.isNotEmpty())
-            assertTrue(LunchRules.calculate(LocalDate.of(2026, 11, 13), listOf(student), emptyList()).excluded.isNotEmpty())
-            assertTrue(LunchRules.calculate(LocalDate.of(2026, 11, 11), listOf(student), emptyList()).eating.isNotEmpty())
+            assertTrue(MealAbsenceRules.forDate(LocalDate.of(2026, 11, 12), listOf(student), emptyList()).isNotEmpty())
+            assertTrue(MealAbsenceRules.forDate(LocalDate.of(2026, 11, 13), listOf(student), emptyList()).isNotEmpty())
+            assertTrue(MealAbsenceRules.forDate(LocalDate.of(2026, 11, 11), listOf(student), emptyList()).isEmpty())
 
             device.pressBack()
+            device.pressBack()
+            assertTrue(device.wait(Until.hasObject(By.text("记录")), 10_000))
+            device.findObject(By.text("记录")).click()
             assertTrue(device.wait(Until.hasObject(By.desc("记录请假")), 10_000))
             device.findObject(By.desc("记录请假")).click()
             assertTrue(device.wait(Until.hasObject(By.textContains("选择学生")), 10_000))

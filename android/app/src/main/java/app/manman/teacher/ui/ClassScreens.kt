@@ -130,7 +130,7 @@ fun StudentScreen(student: Student, state: MainUiState, viewModel: MainViewModel
             if (eats) {
                 Block {
                     Text("每周固定不在校用餐", style = MaterialTheme.typography.titleMedium)
-                    Text("选择不在校吃午餐的星期；临时变化可在当天午餐核验中调整。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("选择固定不在校用餐的星期；请假会自动计入当天名单。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日").forEachIndexed { index, label ->
                             val bit = 1 shl (index + 1)
@@ -162,7 +162,7 @@ fun StudentScreen(student: Student, state: MainUiState, viewModel: MainViewModel
         AlertDialog(
             onDismissRequest = { confirmRemove = false },
             title = { Text("移出当前班级？") },
-            text = { Text("历史标记与午餐核验快照会保留当时的姓名。") },
+            text = { Text("历史班级标记会保留当时的姓名。") },
             confirmButton = { TextButton(onClick = { confirmRemove = false; viewModel.saveStudent(student.copy(active = false), back) }) { Text("移除") } },
             dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text("取消") } },
         )

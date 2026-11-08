@@ -29,8 +29,8 @@ import app.manman.teacher.MainViewModel
 import app.manman.teacher.IncomingShare
 
 private enum class Page {
-    TODAY, RECORDS, CLASS, SETTINGS, IMPORT, STUDENT, LEAVE, LUNCH, MARKING, MARKING_DETAIL,
-    MENU, SCHEDULE, WORK, NOTICE_DETAIL, NOTICE_EDIT, TASK_DETAIL, TASK_EDIT, IMAGE, LUNCH_HISTORY, NOTICE_REVIEW,
+    TODAY, RECORDS, CLASS, SETTINGS, IMPORT, STUDENT, LEAVE, MEAL_ABSENCES, MARKING, MARKING_DETAIL,
+    MENU, SCHEDULE, WORK, NOTICE_DETAIL, NOTICE_EDIT, TASK_DETAIL, TASK_EDIT, IMAGE, NOTICE_REVIEW,
 }
 
 @Composable
@@ -54,6 +54,7 @@ fun ManmanApp(viewModel: MainViewModel, shared: IncomingShare? = null, consumeSh
     val page = when (pageName) {
         "MENU_REVIEW" -> Page.MENU
         "SCHEDULE_REVIEW" -> Page.SCHEDULE
+        "LUNCH", "LUNCH_HISTORY" -> Page.MEAL_ABSENCES
         else -> Page.entries.firstOrNull { it.name == pageName } ?: Page.TODAY
     }
     val snackbar = remember { SnackbarHostState() }
@@ -87,10 +88,11 @@ fun ManmanApp(viewModel: MainViewModel, shared: IncomingShare? = null, consumeSh
             Page.MARKING -> Page.valueOf(markingReturn)
             Page.MARKING_DETAIL -> Page.RECORDS
             Page.LEAVE -> Page.valueOf(leaveReturn)
-            Page.LUNCH, Page.SETTINGS, Page.CLASS -> Page.TODAY
-            Page.LUNCH_HISTORY -> Page.RECORDS
+            Page.SETTINGS -> Page.TODAY
+            Page.CLASS, Page.SCHEDULE -> Page.SETTINGS
+            Page.MEAL_ABSENCES -> Page.RECORDS
             Page.NOTICE_REVIEW -> Page.NOTICE_DETAIL
-            Page.MENU, Page.SCHEDULE, Page.WORK -> Page.TODAY
+            Page.MENU, Page.WORK -> Page.TODAY
             Page.NOTICE_DETAIL -> Page.WORK
             Page.NOTICE_EDIT -> if (selectedNoticeId.isEmpty()) Page.WORK else Page.NOTICE_DETAIL
             Page.TASK_DETAIL -> Page.valueOf(taskReturn)
@@ -124,10 +126,8 @@ fun ManmanApp(viewModel: MainViewModel, shared: IncomingShare? = null, consumeSh
                 state.restoring -> CircularProgressIndicator(Modifier.align(Alignment.Center))
                 state.accountId == null -> LoginScreen(state, viewModel)
                 else -> when (page) {
-                    Page.TODAY -> TodayScreen(state, viewModel, onLunch = { go(Page.LUNCH) },
-                        onLeave = { selectedId = ""; leaveReturn = Page.TODAY.name; go(Page.LEAVE) },
-                        onMark = { selectedId = ""; markingReturn = Page.TODAY.name; go(Page.MARKING) }, onClass = { go(Page.CLASS) },
-                        onSettings = { go(Page.SETTINGS) }, onMenu = { go(Page.MENU) }, onSchedule = { go(Page.SCHEDULE) },
+                    Page.TODAY -> TodayScreen(state, viewModel,
+                        onSettings = { go(Page.SETTINGS) }, onMenu = { go(Page.MENU) },
                         onWork = { showNotices = false; go(Page.WORK) }, onNotices = { showNotices = true; go(Page.WORK) },
                         onAddTask = { selectedTaskId = ""; selectedNoticeId = ""; suggestionIndex = -1; taskReturn = Page.TODAY.name; go(Page.TASK_EDIT) },
                         onTask = { selectedTaskId = it; selectedNoticeId = ""; suggestionIndex = -1; taskReturn = Page.TODAY.name; go(Page.TASK_DETAIL) })
@@ -135,14 +135,14 @@ fun ManmanApp(viewModel: MainViewModel, shared: IncomingShare? = null, consumeSh
                         onLeave = { selectedId = ""; leaveReturn = Page.RECORDS.name; go(Page.LEAVE) },
                         onEditLeave = { selectedId = it; leaveReturn = Page.RECORDS.name; go(Page.LEAVE) },
                         onMark = { selectedId = ""; markingReturn = Page.RECORDS.name; go(Page.MARKING) }, onMarking = { selectedId = it; go(Page.MARKING_DETAIL) },
-                        onLunchReview = { selectedId = it; go(Page.LUNCH_HISTORY) })
+                        onMealAbsences = { go(Page.MEAL_ABSENCES) })
                     Page.CLASS -> ClassScreen(state, ::back, { go(Page.IMPORT) }, { selectedId = it; go(Page.STUDENT) },
                         { selectedId = ""; markingReturn = Page.CLASS.name; go(Page.MARKING) })
-                    Page.SETTINGS -> SettingsScreen(state, viewModel, ::back)
+                    Page.SETTINGS -> SettingsScreen(state, viewModel, ::back, onClass = { go(Page.CLASS) }, onSchedule = { go(Page.SCHEDULE) })
                     Page.IMPORT -> ImportStudentsScreen(state, viewModel, ::back)
                     Page.STUDENT -> state.students.firstOrNull { it.id == selectedId }?.let { StudentScreen(it, state, viewModel, ::back) }
                     Page.LEAVE -> LeaveScreen(state, viewModel, state.leaves.firstOrNull { it.id == selectedId }, ::back) { go(Page.IMPORT) }
-                    Page.LUNCH -> LunchScreen(state, viewModel, ::back) { go(Page.IMPORT) }
+                    Page.MEAL_ABSENCES -> MealAbsencesScreen(state, ::back)
                     Page.MARKING -> MarkingScreen(state, viewModel, state.markings.firstOrNull { it.id == selectedId }, ::back) { go(Page.IMPORT) }
                     Page.MARKING_DETAIL -> state.markings.firstOrNull { it.id == selectedId }?.let {
                         MarkingDetailScreen(it, state, viewModel, ::back) { markingReturn = Page.MARKING_DETAIL.name; go(Page.MARKING) }
@@ -171,9 +171,8 @@ fun ManmanApp(viewModel: MainViewModel, shared: IncomingShare? = null, consumeSh
                         selectedNoticeId.takeIf(String::isNotEmpty), state.noticeSuggestion?.items?.getOrNull(suggestionIndex), ::back,
                         onSaved = {
                             if (suggestionIndex >= 0) { viewModel.consumeNoticeSuggestion(suggestionIndex); go(Page.NOTICE_REVIEW) } else back()
-                        }, defaultDate = if (selectedTaskId.isEmpty() && selectedNoticeId.isEmpty() && suggestionIndex < 0 && taskReturn == Page.TODAY.name) java.time.LocalDate.now(app.manman.teacher.domain.LunchRules.defaultZone) else null)
+                        }, defaultDate = if (selectedTaskId.isEmpty() && selectedNoticeId.isEmpty() && suggestionIndex < 0 && taskReturn == Page.TODAY.name) java.time.LocalDate.now(app.manman.teacher.domain.AppTime.zone) else null)
                     Page.IMAGE -> ImageScreen(state, imageId, ::back)
-                    Page.LUNCH_HISTORY -> state.reviews.firstOrNull { it.id == selectedId }?.let { LunchReviewDetailScreen(it, ::back) }
                     Page.NOTICE_REVIEW -> state.noticeSuggestion?.let { suggestion ->
                         NoticeReviewScreen(suggestion, ::back) { index -> selectedTaskId = ""; suggestionIndex = index; go(Page.TASK_EDIT) }
                     }

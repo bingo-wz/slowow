@@ -13,6 +13,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.flow.MutableStateFlow
 import app.manman.teacher.ui.ManmanApp
 import app.manman.teacher.ui.ManmanTheme
+import app.manman.teacher.ui.AppTextSizeProvider
 
 class MainActivity : ComponentActivity() {
     private val sharedContent = MutableStateFlow<IncomingShare?>(null)
@@ -27,10 +28,13 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             val fontState by (application as ManmanApplication).fonts.state.collectAsStateWithLifecycle()
-            ManmanTheme(fontState.family) {
-                val model: MainViewModel = viewModel(factory = MainViewModel.factory(application as ManmanApplication))
-                val incoming by sharedContent.collectAsStateWithLifecycle()
-                ManmanApp(model, incoming) { sharedContent.value = null }
+            val textSize by (application as ManmanApplication).textSizes.state.collectAsStateWithLifecycle()
+            AppTextSizeProvider(textSize) {
+                ManmanTheme(fontState.family) {
+                    val model: MainViewModel = viewModel(factory = MainViewModel.factory(application as ManmanApplication))
+                    val incoming by sharedContent.collectAsStateWithLifecycle()
+                    ManmanApp(model, incoming) { sharedContent.value = null }
+                }
             }
         }
     }

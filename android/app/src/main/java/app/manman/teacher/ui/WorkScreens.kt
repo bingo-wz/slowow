@@ -35,7 +35,7 @@ import app.manman.teacher.MainUiState
 import app.manman.teacher.MainViewModel
 import app.manman.teacher.data.Notice
 import app.manman.teacher.data.WorkTask
-import app.manman.teacher.domain.LunchRules
+import app.manman.teacher.domain.AppTime
 import app.manman.teacher.recognition.NoticeSuggestionItem
 import java.time.Instant
 import java.time.LocalDate
@@ -44,7 +44,7 @@ import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 private val momentFormat = DateTimeFormatter.ofPattern("M月d日 HH:mm")
-private fun formatMoment(value: Instant?): String = value?.atZone(LunchRules.defaultZone)?.format(momentFormat) ?: "未设置"
+private fun formatMoment(value: Instant?): String = value?.atZone(AppTime.zone)?.format(momentFormat) ?: "未设置"
 private fun taskDue(task: WorkTask): String = task.dueAt?.let(::formatMoment) ?: task.dueDate?.toString()?.plus("（仅日期）") ?: "未设置时间"
 @Composable
 fun WorkScreen(state: MainUiState, viewModel: MainViewModel, showNotices: Boolean, setShowNotices: (Boolean) -> Unit,
@@ -214,7 +214,7 @@ fun TaskEditorScreen(state: MainUiState, viewModel: MainViewModel, existing: Wor
     back: () -> Unit, onSaved: () -> Unit = back, defaultDate: LocalDate? = null) {
     val context = LocalContext.current
     val initialDue = existing?.dueAt ?: if (suggestion?.date != null && suggestion.time != null) {
-        suggestion.date.atTime(suggestion.time).atZone(LunchRules.defaultZone).toInstant()
+        suggestion.date.atTime(suggestion.time).atZone(AppTime.zone).toInstant()
     } else null
     val initialDate = existing?.dueDate ?: suggestion?.date ?: if (existing == null) defaultDate else null
     var title by rememberSaveable(existing?.id, suggestion?.title) { mutableStateOf(existing?.title ?: suggestion?.title.orEmpty()) }
@@ -228,11 +228,11 @@ fun TaskEditorScreen(state: MainUiState, viewModel: MainViewModel, existing: Wor
     androidx.activity.compose.BackHandler { leave() }
     val notice = state.notices.firstOrNull { it.id == (existing?.noticeId ?: noticeId) }
     fun chooseMoment(value: String, onSelected: (String) -> Unit) {
-        val current = value.takeIf(String::isNotBlank)?.let(Instant::parse)?.atZone(LunchRules.defaultZone)
-            ?: ZonedDateTime.now(LunchRules.defaultZone).plusHours(1).withSecond(0).withNano(0)
+        val current = value.takeIf(String::isNotBlank)?.let(Instant::parse)?.atZone(AppTime.zone)
+            ?: ZonedDateTime.now(AppTime.zone).plusHours(1).withSecond(0).withNano(0)
         DatePickerDialog(context, { _, year, month, day ->
             TimePickerDialog(context, { _, hour, minute ->
-                val selected = java.time.LocalDateTime.of(year, month + 1, day, hour, minute).atZone(LunchRules.defaultZone).toInstant()
+                val selected = java.time.LocalDateTime.of(year, month + 1, day, hour, minute).atZone(AppTime.zone).toInstant()
                 onSelected(selected.toString())
             }, current.hour, current.minute, true).show()
         }, current.year, current.monthValue - 1, current.dayOfMonth).show()
@@ -246,11 +246,11 @@ fun TaskEditorScreen(state: MainUiState, viewModel: MainViewModel, existing: Wor
                 Text("事项时间", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row {
                     val label = if (due.isNotEmpty()) formatMoment(Instant.parse(due)) else dueDate.takeIf(String::isNotBlank)?.plus("（仅日期）") ?: "未设置"
-                    TextButton(onClick = { chooseMoment(due) { due = it; dueDate = Instant.parse(it).atZone(LunchRules.defaultZone).toLocalDate().toString() } }) { Text(label + "  ›") }
+                    TextButton(onClick = { chooseMoment(due) { due = it; dueDate = Instant.parse(it).atZone(AppTime.zone).toLocalDate().toString() } }) { Text(label + "  ›") }
                     if (due.isNotEmpty() || dueDate.isNotEmpty()) TextButton(onClick = { due = ""; dueDate = "" }) { Text("清除") }
                 }
                 TextButton(onClick = {
-                    val current = dueDate.takeIf(String::isNotBlank)?.let(LocalDate::parse) ?: LocalDate.now(LunchRules.defaultZone)
+                    val current = dueDate.takeIf(String::isNotBlank)?.let(LocalDate::parse) ?: LocalDate.now(AppTime.zone)
                     DatePickerDialog(context, { _, year, month, day -> dueDate = LocalDate.of(year, month + 1, day).toString(); due = "" },
                         current.year, current.monthValue - 1, current.dayOfMonth).show()
                 }) { Text("只设置日期") }

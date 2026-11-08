@@ -30,11 +30,10 @@ import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 import java.time.Instant
 import java.time.Duration
-import java.time.LocalTime
 import java.security.MessageDigest
 
 private data class ReminderData(val ownerKey: String, val tasks: List<WorkTask>, val lessons: List<Lesson>, val slots: List<TimeSlot>,
-    val minutes: Int?, val lunchTime: LocalTime?)
+    val minutes: Int?)
 
 class ReminderScheduler(private val application: ManmanApplication) {
     private val alarm = application.getSystemService(AlarmManager::class.java)
@@ -47,7 +46,7 @@ class ReminderScheduler(private val application: ManmanApplication) {
         val expected = preferences.getLong("next_at", 0)
         if (expected > 0 && data != null && preferences.getString("owner", null) == data.ownerKey &&
             expected <= now.toEpochMilli() && now.toEpochMilli() - expected <= Duration.ofHours(2).toMillis() &&
-            ReminderPlan.hasDue(data.tasks, data.lessons, data.slots, data.minutes, Instant.ofEpochMilli(expected).minusMillis(1000), now, data.lunchTime)) {
+            ReminderPlan.hasDue(data.tasks, data.lessons, data.slots, data.minutes, Instant.ofEpochMilli(expected).minusMillis(1000), now)) {
             preferences.edit().remove("next_at").remove("owner").apply()
             notifyUser()
         }
@@ -60,7 +59,7 @@ class ReminderScheduler(private val application: ManmanApplication) {
         val matches = expectedAt > 0 && preferences.getLong("next_at", 0) == expectedAt &&
             data != null && preferences.getString("owner", null) == data.ownerKey
         if (matches && now.toEpochMilli() - expectedAt <= Duration.ofHours(2).toMillis() &&
-            ReminderPlan.hasDue(data!!.tasks, data.lessons, data.slots, data.minutes, Instant.ofEpochMilli(expectedAt).minusMillis(1000), now, data.lunchTime)) {
+            ReminderPlan.hasDue(data!!.tasks, data.lessons, data.slots, data.minutes, Instant.ofEpochMilli(expectedAt).minusMillis(1000), now)) {
             preferences.edit().remove("next_at").remove("owner").apply()
             notifyUser()
         }
@@ -78,22 +77,17 @@ class ReminderScheduler(private val application: ManmanApplication) {
             try { JSONObject(it.payload) } catch (_: Exception) { null }
         }
         val minutes = settings?.optInt("lessonMinutes", -1)?.takeIf { it in 0..60 }
-        val lunch = if (settings?.optBoolean("lunchEnabled", false) == true) {
-            records.firstOrNull { it.kind == RecordKind.SETTINGS && it.id == "main" }?.let {
-                try { LocalTime.parse(JSONObject(it.payload).getString("lunchCutoff")) } catch (_: Exception) { null }
-            } ?: app.manman.teacher.domain.LunchRules.defaultCutoff
-        } else null
         val ownerKey = MessageDigest.getInstance("SHA-256").digest(account.toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it.toInt() and 0xff) }
         return ReminderData(ownerKey, decode(RecordKind.TASK, RecordCodec::task), decode(RecordKind.LESSON, RecordCodec::lesson),
-            decode(RecordKind.TIME_SLOT, RecordCodec::timeSlot), minutes, lunch)
+            decode(RecordKind.TIME_SLOT, RecordCodec::timeSlot), minutes)
     }
 
     private fun schedule(data: ReminderData?, now: Instant) {
         val pending = pendingIntent(0)
         alarm.cancel(pending)
         preferences.edit().remove("next_at").remove("owner").apply()
-        val next = data?.let { ReminderPlan.next(it.tasks, it.lessons, it.slots, it.minutes, now, it.lunchTime) } ?: return
+        val next = data?.let { ReminderPlan.next(it.tasks, it.lessons, it.slots, it.minutes, now) } ?: return
         preferences.edit().putLong("next_at", next.toEpochMilli()).putString("owner", data.ownerKey).apply()
         val operation = pendingIntent(next.toEpochMilli())
         try {
@@ -124,7 +118,7 @@ class ReminderScheduler(private val application: ManmanApplication) {
         val publicNotification = Notification.Builder(application, CHANNEL).setSmallIcon(R.drawable.ic_launcher)
             .setContentTitle("慢慢提醒").setContentText("你有一项工作需要查看").build()
         val notification = Notification.Builder(application, CHANNEL).setSmallIcon(R.drawable.ic_launcher)
-            .setContentTitle("慢慢提醒").setContentText("课程、待办或午餐核验时间到了，打开慢慢查看。")
+            .setContentTitle("慢慢提醒").setContentText("课程或待办的提醒时间到了，打开慢慢查看。")
             .setContentIntent(open).setAutoCancel(true).setVisibility(Notification.VISIBILITY_PRIVATE)
             .setPublicVersion(publicNotification).build()
         manager.notify(1001, notification)

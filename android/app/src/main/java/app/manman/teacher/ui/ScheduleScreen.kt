@@ -31,7 +31,7 @@ import app.manman.teacher.MainUiState
 import app.manman.teacher.MainViewModel
 import app.manman.teacher.data.Lesson
 import app.manman.teacher.data.TimeSlot
-import app.manman.teacher.domain.LunchRules
+import app.manman.teacher.domain.AppTime
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
@@ -41,7 +41,7 @@ private val weekNames = listOf("周一", "周二", "周三", "周四", "周五",
 
 @Composable
 fun ScheduleScreen(state: MainUiState, viewModel: MainViewModel, back: () -> Unit) {
-    var weekday by remember { mutableIntStateOf(LocalDate.now(LunchRules.defaultZone).dayOfWeek.value) }
+    var weekday by remember { mutableIntStateOf(LocalDate.now(AppTime.zone).dayOfWeek.value) }
     var editSlot by remember { mutableStateOf<TimeSlot?>(null) }
     var newSlot by remember { mutableStateOf(false) }
     var lessonSlot by remember { mutableStateOf<TimeSlot?>(null) }

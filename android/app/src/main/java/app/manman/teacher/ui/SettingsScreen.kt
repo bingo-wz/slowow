@@ -25,7 +25,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.Switch
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -49,7 +48,7 @@ import app.manman.teacher.ManmanApplication
 import org.json.JSONObject
 
 @Composable
-fun SettingsScreen(state: MainUiState, viewModel: MainViewModel, back: () -> Unit) {
+fun SettingsScreen(state: MainUiState, viewModel: MainViewModel, back: () -> Unit, onClass: () -> Unit, onSchedule: () -> Unit) {
     var confirmSignOut by remember { mutableStateOf(false) }
     var selectedConflict by remember { mutableStateOf<LocalRecord?>(null) }
     var bindRecognition by remember { mutableStateOf(false) }
@@ -57,12 +56,20 @@ fun SettingsScreen(state: MainUiState, viewModel: MainViewModel, back: () -> Uni
     Column(Modifier.fillMaxSize()) {
         PageHeader("设置", back = back)
         Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            SectionHeading("班级设置")
-            CutoffSetting(state, viewModel)
+            SectionHeading("班级")
+            Block(onClick = onClass) {
+                Text("班级与学生", style = MaterialTheme.typography.bodyLarge)
+                Text("管理学生名单和固定用餐安排  ›", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Block(onClick = onSchedule) {
+                Text("课程与作息", style = MaterialTheme.typography.bodyLarge)
+                Text("管理课程和作息时间  ›", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             SectionHeading("提醒")
             ReminderSettings(state, viewModel)
             SectionHeading("显示")
             FontSetting((LocalContext.current.applicationContext as ManmanApplication).fonts)
+            TextSizeSetting((LocalContext.current.applicationContext as ManmanApplication).textSizes)
             SectionHeading("识别服务")
             Block(onClick = { bindRecognition = true }) {
                 Text("绑定识别账号", style = MaterialTheme.typography.bodyLarge)
@@ -184,15 +191,6 @@ private fun ReminderSettings(state: MainUiState, viewModel: MainViewModel) {
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     Block {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("午餐核验提醒", style = MaterialTheme.typography.bodyLarge)
-                Text("周一至周五 ${state.cutoff} 提醒核验。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Switch(checked = state.lunchReminderEnabled, onCheckedChange = viewModel::saveLunchReminder, enabled = !state.busy)
-        }
-    }
-    Block {
         Text(if (notificationsEnabled) "通知已开启" else "通知未开启", style = MaterialTheme.typography.bodyLarge)
         Text(if (exactEnabled) "准时提醒可用。" else "准时提醒未开启，系统可能延迟通知。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (!notificationsEnabled) TextButton(onClick = {
@@ -223,8 +221,7 @@ private fun ReminderSettings(state: MainUiState, viewModel: MainViewModel) {
 private fun kindLabel(kind: String): String = when (kind) {
     RecordKind.STUDENT -> "学生信息"
     RecordKind.LEAVE -> "请假记录"
-    RecordKind.MEAL_OVERRIDE -> "午餐调整"
-    RecordKind.LUNCH_REVIEW -> "午餐核验"
+    RecordKind.MEAL_OVERRIDE, RecordKind.LUNCH_REVIEW -> "旧版用餐记录"
     RecordKind.MARKING -> "班级标记"
     RecordKind.MENU -> "菜单"
     RecordKind.MENU_WEEK -> "周菜单原图"
@@ -281,11 +278,11 @@ private fun describeRecord(kind: String, payload: String, deleted: Boolean, name
                 val source = if (json.isNull("noticeId")) "无" else notices[json.getString("noticeId")] ?: "关联的通知"
                 "事项：${json.getString("title")}\n时间：${optional("dueAt")}\n日期：${optional("dueDate")}\n提醒：${optional("remindAt")}\n状态：${if (json.getBoolean("done")) "已完成" else "待处理"}\n来源：$source"
             }
-            RecordKind.SETTINGS -> if (json.has("lessonMinutes") || json.has("lunchEnabled")) {
+            RecordKind.SETTINGS -> if (json.has("lessonMinutes")) {
                 val minutes = json.optInt("lessonMinutes", -1)
                 val course = if (minutes < 0) "关闭" else "提前 $minutes 分钟"
-                "课程提醒：$course\n午餐提醒：${if (json.optBoolean("lunchEnabled", false)) "开启" else "关闭"}"
-            } else "午餐截止时间：${json.getString("lunchCutoff")}"
+                "课程提醒：$course"
+            } else "旧版设置已停用，原数据仍保留。"
             else -> null
         }
     } catch (_: Exception) {

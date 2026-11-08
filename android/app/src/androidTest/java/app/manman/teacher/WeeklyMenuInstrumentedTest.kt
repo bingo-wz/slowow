@@ -20,7 +20,7 @@ import androidx.test.uiautomator.Until
 import app.manman.teacher.data.ClassRepository
 import app.manman.teacher.data.RecordCodec
 import app.manman.teacher.data.RecordKind
-import app.manman.teacher.domain.LunchRules
+import app.manman.teacher.domain.AppTime
 import app.manman.teacher.ui.ManmanTheme
 import app.manman.teacher.ui.MenuScreen
 import kotlinx.coroutines.runBlocking
@@ -42,7 +42,7 @@ class WeeklyMenuInstrumentedTest {
     @Test fun weeklyImageCanBeSavedAndViewedWithoutRecognition() = runBlocking {
         val app = ApplicationProvider.getApplicationContext<ManmanApplication>()
         val account = "weekly-menu-test-${UUID.randomUUID()}"
-        val start = LocalDate.now(LunchRules.defaultZone).with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+        val start = LocalDate.now(AppTime.zone).with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
         val source = File(app.cacheDir, "weekly-menu-${UUID.randomUUID()}.png")
         val bitmap = Bitmap.createBitmap(32, 48, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.GREEN) }
         source.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
@@ -90,7 +90,7 @@ class WeeklyMenuInstrumentedTest {
         require(account.startsWith("release-fixture-"))
         val model = MainViewModel(app)
         val initial = withTimeout(10_000) { model.state.first { it.accountId == account && it.menuWeeks.isNotEmpty() } }
-        val start = LocalDate.now(LunchRules.defaultZone).with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+        val start = LocalDate.now(AppTime.zone).with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
         val oldImage = initial.menuWeeks.single { it.start == start }.attachmentId
         val source = File(app.cacheDir, "selected-menu-${UUID.randomUUID()}.png")
         val bitmap = Bitmap.createBitmap(20, 30, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.BLUE) }

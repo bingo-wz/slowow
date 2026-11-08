@@ -168,11 +168,6 @@ fun LineIcon(name: String, modifier: Modifier = Modifier) {
             "down" -> { line(6f, 9f, 12f, 15f); line(12f, 15f, 18f, 9f) }
             "up" -> { line(6f, 15f, 12f, 9f); line(12f, 9f, 18f, 15f) }
             "list" -> { line(9f, 6f, 20f, 6f); line(9f, 12f, 20f, 12f); line(9f, 18f, 20f, 18f); line(4f, 6f, 5f, 6f); line(4f, 12f, 5f, 12f); line(4f, 18f, 5f, 18f) }
-            "lunch" -> { line(5f, 3f, 5f, 10f); line(8f, 3f, 8f, 10f); line(5f, 10f, 8f, 10f); line(6.5f, 10f, 6.5f, 21f); line(17f, 3f, 17f, 21f); line(17f, 3f, 13f, 11f); line(13f, 11f, 17f, 11f) }
-            "leave" -> { drawRoundRect(color, Offset(4f * unit, 5f * unit), Size(16f * unit, 15f * unit), androidx.compose.ui.geometry.CornerRadius(2f * unit), style = Stroke(stroke)); line(4f, 10f, 20f, 10f); line(8f, 3f, 8f, 7f); line(16f, 3f, 16f, 7f); line(9f, 15f, 15f, 15f) }
-            "mark" -> { drawCircle(color, 3f * unit, Offset(9f * unit, 7f * unit), style = Stroke(stroke)); drawArc(color, 190f, 160f, false, Offset(3f * unit, 11f * unit), Size(12f * unit, 10f * unit), style = Stroke(stroke, cap = StrokeCap.Round)); line(15f, 15f, 17f, 17f); line(17f, 17f, 21f, 12f) }
-            "menu" -> { drawRoundRect(color, Offset(5f * unit, 3f * unit), Size(14f * unit, 18f * unit), androidx.compose.ui.geometry.CornerRadius(2f * unit), style = Stroke(stroke)); line(8f, 8f, 16f, 8f); line(8f, 12f, 16f, 12f); line(8f, 16f, 13f, 16f) }
-            "schedule" -> { drawCircle(color, 8f * unit, Offset(12f * unit, 12f * unit), style = Stroke(stroke)); line(12f, 7f, 12f, 12f); line(12f, 12f, 16f, 14f) }
             "notice" -> { drawRoundRect(color, Offset(4f * unit, 4f * unit), Size(16f * unit, 15f * unit), androidx.compose.ui.geometry.CornerRadius(2f * unit), style = Stroke(stroke)); line(8f, 9f, 16f, 9f); line(8f, 13f, 14f, 13f); line(8f, 19f, 8f, 21f); line(8f, 21f, 12f, 19f) }
             "settings" -> {
                 drawCircle(color, 3f * unit, Offset(12f * unit, 12f * unit), style = Stroke(stroke))

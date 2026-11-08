@@ -46,7 +46,7 @@ import app.manman.teacher.MainViewModel
 import app.manman.teacher.data.MarkingRecord
 import app.manman.teacher.data.MarkingStudent
 import app.manman.teacher.domain.Student
-import app.manman.teacher.domain.LunchRules
+import app.manman.teacher.domain.AppTime
 import java.time.Instant
 import java.time.format.DateTimeFormatter
 import java.util.UUID
@@ -133,7 +133,7 @@ fun MarkingDetailScreen(record: MarkingRecord, state: MainUiState, viewModel: Ma
     val second = record.students.filterNot(MarkingStudent::first)
     val context = LocalContext.current
     var confirmDelete by remember { mutableStateOf(false) }
-    val date = record.createdAt.atZone(LunchRules.defaultZone)
+    val date = record.createdAt.atZone(AppTime.zone)
     fun copyNames(students: List<MarkingStudent>) {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText("学生名单", students.joinToString("、") { it.name }))

@@ -34,7 +34,7 @@ import androidx.compose.ui.unit.dp
 import app.manman.teacher.MainUiState
 import app.manman.teacher.MainViewModel
 import app.manman.teacher.data.WorkTask
-import app.manman.teacher.domain.LunchRules
+import app.manman.teacher.domain.AppTime
 import app.manman.teacher.domain.TaskOrdering
 import kotlinx.coroutines.delay
 import sh.calvin.reorderable.ReorderableItem
@@ -46,12 +46,12 @@ import java.time.format.DateTimeFormatter
 
 @Composable
 fun rememberToday(): LocalDate {
-    var today by remember { mutableStateOf(LocalDate.now(LunchRules.defaultZone)) }
+    var today by remember { mutableStateOf(LocalDate.now(AppTime.zone)) }
     LaunchedEffect(Unit) {
         while (true) {
-            val now = ZonedDateTime.now(LunchRules.defaultZone)
+            val now = ZonedDateTime.now(AppTime.zone)
             today = now.toLocalDate()
-            val next = today.plusDays(1).atStartOfDay(LunchRules.defaultZone)
+            val next = today.plusDays(1).atStartOfDay(AppTime.zone)
             delay(Duration.between(now, next).toMillis().coerceAtLeast(1_000))
         }
     }
@@ -110,8 +110,8 @@ fun TaskAgenda(
         days.forEach { day ->
             val key = dateKey(day)
             val tasks = tasksFor(day)
-            val isCollapsed = key in collapsed
-            item(key = "day:$key") {
+            val isCollapsed = !onlyToday && key in collapsed
+            if (!onlyToday) item(key = "day:$key") {
                 val label = when {
                     day == null -> "未安排日期"
                     day == today -> "${day.format(DateTimeFormatter.ofPattern("M月d日"))} · 今天"
@@ -145,7 +145,7 @@ fun TaskAgenda(
                                     color = if (task.done) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
                                     textDecoration = if (task.done) TextDecoration.LineThrough else TextDecoration.None)
                                 task.dueAt?.let {
-                                    Text(it.atZone(LunchRules.defaultZone).format(DateTimeFormatter.ofPattern("HH:mm")),
+                                    Text(it.atZone(AppTime.zone).format(DateTimeFormatter.ofPattern("HH:mm")),
                                         color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                                 }
                             }
