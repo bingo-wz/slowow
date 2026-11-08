@@ -6,6 +6,7 @@ import android.graphics.pdf.PdfDocument
 import android.net.Uri
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import app.manman.teacher.data.ClassRepository
 import app.manman.teacher.data.RecordCodec
 import app.manman.teacher.data.RecordKind
@@ -18,6 +19,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
+import org.junit.Assume.assumeTrue
 import org.junit.runner.RunWith
 import java.io.File
 import java.time.LocalTime
@@ -25,6 +27,20 @@ import java.util.UUID
 
 @RunWith(AndroidJUnit4::class)
 class ScheduleImportInstrumentedTest {
+    @Test fun providedDocumentsCanBePreparedOnDevice() = runBlocking {
+        assumeTrue(InstrumentationRegistry.getArguments().getString("localDocumentFixture") == "1")
+        val application = ApplicationProvider.getApplicationContext<ManmanApplication>()
+        val pdf = File(application.cacheDir, "provided-schedule.pdf")
+        val image = File(application.cacheDir, "provided-timetable.jpg")
+        assertTrue(pdf.isFile && image.isFile)
+        val files = ScheduleDocuments.read(application, listOf(Uri.fromFile(pdf), Uri.fromFile(image)), 90)
+        assertEquals(2, files.size)
+        assertTrue(files.all { it.kind.startsWith("image/") && it.data.isNotEmpty() })
+        if (InstrumentationRegistry.getArguments().getString("exportLocalFixture") == "1") {
+            File(application.cacheDir, "provided-rendered.jpg").writeBytes(files.first().data)
+        }
+    }
+
     @Test fun pdfPageIsRenderedAndTemporaryFileIsRemoved() = runBlocking {
         val application = ApplicationProvider.getApplicationContext<ManmanApplication>()
         val source = File(application.cacheDir, "fictional-${UUID.randomUUID()}.pdf")

@@ -8,6 +8,7 @@ import (
 	"image/color"
 	"image/draw"
 	"image/png"
+	"net/http"
 	"os"
 	"time"
 
@@ -40,14 +41,20 @@ func main() {
 		table := "虚构示例：周一第一节 09:05-09:45 语文；周二第一节 08:35-09:15 数学。"
 		var images []recognition.Image
 		if os.Args[1] == "schedule-image" {
-			if len(os.Args) != 3 {
+			if len(os.Args) < 3 || len(os.Args) > 7 {
 				os.Exit(1)
 			}
-			data, err := os.ReadFile(os.Args[2])
-			if err != nil || len(data) > 1<<20 {
-				os.Exit(1)
+			for _, path := range os.Args[2:] {
+				data, err := os.ReadFile(path)
+				if err != nil || len(data) > 8<<20 {
+					os.Exit(1)
+				}
+				mime := http.DetectContentType(data)
+				if mime != "image/jpeg" && mime != "image/png" && mime != "image/webp" {
+					os.Exit(1)
+				}
+				images = append(images, recognition.Image{MIME: mime, Data: data})
 			}
-			images = []recognition.Image{{MIME: "image/png", Data: data}}
 			table = ""
 		}
 		result, err := client.Schedule(ctx, table, images)
@@ -56,7 +63,17 @@ func main() {
 			os.Exit(1)
 		}
 		var monday, tuesday bool
+		type slotKey struct {
+			weekday int
+			title   string
+		}
+		counts := make(map[slotKey]int)
+		missingTimes := 0
 		for _, slot := range result.Slots {
+			counts[slotKey{slot.Weekday, slot.Title}]++
+			if slot.Start == nil || slot.End == nil {
+				missingTimes++
+			}
 			if slot.Start == nil {
 				continue
 			}
@@ -67,7 +84,18 @@ func main() {
 			fmt.Fprintln(os.Stderr, "模拟课表识别未匹配两个星期的时间。 ")
 			os.Exit(1)
 		}
-		fmt.Printf("模拟课表识别成功：%d 个作息、%d 项课程。\n", len(result.Slots), len(result.Lessons))
+		unmatched, duplicates := 0, 0
+		for _, count := range counts {
+			if count > 1 {
+				duplicates += count - 1
+			}
+		}
+		for _, lesson := range result.Lessons {
+			if counts[slotKey{lesson.Weekday, lesson.Slot}] != 1 {
+				unmatched++
+			}
+		}
+		fmt.Printf("课表识别成功：%d 个作息、%d 项课程，缺时间 %d 项、未匹配 %d 项、重复节次 %d 项。\n", len(result.Slots), len(result.Lessons), missingTimes, unmatched, duplicates)
 		return
 	}
 	if len(os.Args) == 3 && os.Args[1] == "menu-image" {

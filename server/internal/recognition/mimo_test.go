@@ -1,9 +1,11 @@
 package recognition
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -43,6 +45,45 @@ func TestMenuRequestAndResponseAreValidated(t *testing.T) {
 	wrongWeek.Days[0].Date = "2026-11-20"
 	if err := validateMenu(wrongWeek, week); err == nil {
 		t.Fatal("不能接受目标周以外的日期")
+	}
+}
+
+func TestScheduleAcceptsLargeValidModelResponse(t *testing.T) {
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		content := `{"slots":[{"weekday":1,"title":"第一节","start":"09:05","end":"09:45"}],"lessons":[],"warnings":[]}`
+		_ = json.NewEncoder(w).Encode(map[string]any{"padding": strings.Repeat("x", 600<<10), "choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]any{"content": content}}}})
+	}))
+	defer mock.Close()
+	key := filepath.Join(t.TempDir(), "key")
+	if err := os.WriteFile(key, []byte("example-test-key"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	client := &Client{endpoint: mock.URL, model: "test-model", keyFile: key, http: mock.Client()}
+	result, err := client.Schedule(context.Background(), "虚构作息", nil)
+	if err != nil || len(result.Slots) != 1 {
+		t.Fatalf("完整响应被错误截断: %v", err)
+	}
+}
+
+func TestMalformedModelEnvelopeDoesNotLeakContent(t *testing.T) {
+	var output bytes.Buffer
+	previous := log.Writer()
+	log.SetOutput(&output)
+	defer log.SetOutput(previous)
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"choices":[{"message":{"content":["虚构学生姓名"]}}]}`)
+	}))
+	defer mock.Close()
+	key := filepath.Join(t.TempDir(), "key")
+	if err := os.WriteFile(key, []byte("example-test-key"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	client := &Client{endpoint: mock.URL, model: "test-model", keyFile: key, http: mock.Client()}
+	if _, err := client.Schedule(context.Background(), "虚构作息", nil); err != ErrInvalidResult {
+		t.Fatalf("异常响应应被拒绝: %v", err)
+	}
+	if !strings.Contains(output.String(), "字段=content") || strings.Contains(output.String(), "虚构学生姓名") {
+		t.Fatal("外层诊断未正确保护内容")
 	}
 }
 
@@ -108,5 +149,29 @@ func TestScheduleValidatesDifferentWeekdayTimes(t *testing.T) {
 	result.Slots[0].End = &c
 	if validateSchedule(result) == nil {
 		t.Fatal("不能接受结束早于开始")
+	}
+}
+
+func TestScheduleKeepsPartialTimesAndIgnoresExtraModelFields(t *testing.T) {
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		content := `{"slots":[{"weekday":1,"title":"晨检","start":null,"end":"8:35","confidence":0.8}],"lessons":[],"warnings":[],"extra":"忽略内容"}`
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]any{"content": content}}}})
+	}))
+	defer mock.Close()
+	key := filepath.Join(t.TempDir(), "key")
+	if err := os.WriteFile(key, []byte("example-test-key"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	client := &Client{endpoint: mock.URL, model: "test-model", keyFile: key, http: mock.Client()}
+	result, err := client.Schedule(context.Background(), "虚构作息", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Slots) != 1 || result.Slots[0].Start != nil || result.Slots[0].End == nil || *result.Slots[0].End != "08:35" {
+		t.Fatalf("未知开始时间或已知结束时间未正确保留: %#v", result.Slots)
+	}
+	bad := "不确定"
+	if err := normalizeSchedule(&ScheduleResult{Slots: []ScheduleSlot{{Weekday: 1, Title: "第一节", Start: &bad}}}); err == nil {
+		t.Fatal("不应猜测无法解析的时间")
 	}
 }

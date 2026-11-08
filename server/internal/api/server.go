@@ -45,9 +45,9 @@ func New(verifier auth.Verifier, repository store.Store, files *attachments.Stor
 	s.mux.Handle("GET /v1/records", s.authorize(http.HandlerFunc(s.pull)))
 	s.mux.Handle("PUT /v1/attachments/{id}", s.authorize(http.HandlerFunc(s.putAttachment)))
 	s.mux.Handle("GET /v1/attachments/{id}", s.authorize(http.HandlerFunc(s.getAttachment)))
-	s.mux.Handle("POST /v1/recognize/{kind}", s.authorize(http.HandlerFunc(s.recognize)))
+	s.mux.Handle("POST /v1/recognize/{kind}", observeRecognition(s.authorize(http.HandlerFunc(s.recognize)), ""))
 	s.mux.Handle("POST /v1/recognize/claim", s.authorize(http.HandlerFunc(s.claimRecognition)))
-	s.mux.Handle("POST /v1/recognize/schedule", s.authorize(http.HandlerFunc(s.recognizeSchedule)))
+	s.mux.Handle("POST /v1/recognize/schedule", observeRecognition(s.authorize(http.HandlerFunc(s.recognizeSchedule)), "schedule"))
 	return s
 }
 
@@ -200,6 +200,9 @@ func (s *Server) pull(w http.ResponseWriter, r *http.Request) {
 }
 
 func writeError(w http.ResponseWriter, code int, key, message string) {
+	if diagnostic, ok := w.(*recognitionResponse); ok {
+		diagnostic.reason = key
+	}
 	writeJSON(w, code, map[string]string{"error": key, "message": message})
 }
 

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -102,6 +103,7 @@ func (c *Client) Menu(ctx context.Context, weekStart time.Time, images []Image) 
 		return MenuResult{}, err
 	}
 	if err := normalizeMenu(&result, weekStart); err != nil {
+		log.Print("识别诊断 模型阶段=menu_validation")
 		return MenuResult{}, err
 	}
 	return result, nil
@@ -120,7 +122,8 @@ weekday 周一为1、周日为7。作息表中按星期分别输出节次，遇�
 	if err := c.generateLimit(ctx, prompt, table, images, &result, 16000); err != nil {
 		return ScheduleResult{}, err
 	}
-	if err := validateSchedule(result); err != nil {
+	if err := normalizeSchedule(&result); err != nil {
+		log.Print("识别诊断 模型阶段=schedule_validation")
 		return ScheduleResult{}, err
 	}
 	return result, nil
@@ -149,15 +152,18 @@ func (c *Client) generate(ctx context.Context, prompt, text string, images []Ima
 func (c *Client) generateLimit(ctx context.Context, prompt, text string, images []Image, target any, tokens int) error {
 	key, err := os.ReadFile(c.keyFile)
 	if err != nil {
+		log.Print("识别诊断 模型阶段=key_read")
 		return ErrUnavailable
 	}
 	secret := strings.TrimSpace(string(key))
 	if len(secret) < 10 || len(secret) > 1024 || strings.ContainsAny(secret, "\r\n") {
+		log.Print("识别诊断 模型阶段=key_format")
 		return ErrUnavailable
 	}
 	parts := []map[string]any{{"type": "text", "text": text}}
 	for _, image := range images {
 		if image.MIME != "image/jpeg" && image.MIME != "image/png" && image.MIME != "image/webp" {
+			log.Print("识别诊断 模型阶段=image_type")
 			return ErrInvalidResult
 		}
 		parts = append(parts, map[string]any{"type": "image_url", "image_url": map[string]string{
@@ -170,19 +176,29 @@ func (c *Client) generateLimit(ctx context.Context, prompt, text string, images 
 		"messages": []map[string]any{{"role": "system", "content": prompt}, {"role": "user", "content": parts}},
 	})
 	if err != nil {
+		log.Print("识别诊断 模型阶段=request_encode")
 		return ErrUnavailable
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(requestBody))
 	if err != nil {
+		log.Print("识别诊断 模型阶段=request_create")
 		return ErrUnavailable
 	}
 	req.Header.Set("Authorization", "Bearer "+secret)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.http.Do(req)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			log.Print("识别诊断 模型阶段=upstream_timeout")
+		} else {
+			log.Print("识别诊断 模型阶段=upstream_connection")
+		}
 		return ErrUnavailable
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("识别诊断 模型阶段=upstream_status 状态=%d", resp.StatusCode)
+	}
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 		return ErrUnauthorized
 	}
@@ -200,30 +216,137 @@ func (c *Client) generateLimit(ctx context.Context, prompt, text string, images 
 			} `json:"message"`
 		} `json:"choices"`
 	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 512<<10)).Decode(&response); err != nil || len(response.Choices) != 1 || response.Choices[0].FinishReason != "stop" {
+	const maxResponseBytes = 2 << 20
+	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
+	if err != nil {
+		reason := "read_error"
+		if errors.Is(err, context.DeadlineExceeded) {
+			reason = "timeout"
+		}
+		log.Printf("识别诊断 模型阶段=response_read 原因=%s 字节=%d", reason, len(responseBody))
+		return ErrInvalidResult
+	}
+	if len(responseBody) > maxResponseBytes {
+		log.Printf("识别诊断 模型阶段=response_too_large 字节=%d", len(responseBody))
+		return ErrInvalidResult
+	}
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		logModelEnvelopeError(err, len(responseBody))
+		return ErrInvalidResult
+	}
+	if len(response.Choices) != 1 {
+		log.Printf("识别诊断 模型阶段=response_choice_count 数量=%d 字节=%d", len(response.Choices), len(responseBody))
+		return ErrInvalidResult
+	}
+	if response.Choices[0].FinishReason != "stop" {
+		reason := "other"
+		switch response.Choices[0].FinishReason {
+		case "length":
+			reason = "length"
+		case "content_filter":
+			reason = "content_filter"
+		}
+		log.Printf("识别诊断 模型阶段=response_incomplete 原因=%s", reason)
 		return ErrInvalidResult
 	}
 	decoder := json.NewDecoder(strings.NewReader(response.Choices[0].Message.Content))
-	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
+		logModelJSONError(err)
 		return ErrInvalidResult
 	}
 	var extra any
 	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		log.Print("识别诊断 模型阶段=result_json_extra")
 		return ErrInvalidResult
 	}
 	return nil
+}
+
+func logModelEnvelopeError(err error, size int) {
+	reason, field, value := "other", "other", "other"
+	var syntax *json.SyntaxError
+	var mismatch *json.UnmarshalTypeError
+	switch {
+	case errors.As(err, &syntax):
+		reason = "json_syntax"
+	case errors.As(err, &mismatch):
+		reason = "json_type"
+		switch mismatch.Field {
+		case "choices":
+			field = "choices"
+		case "choices.message":
+			field = "message"
+		case "choices.message.content":
+			field = "content"
+		case "choices.finish_reason":
+			field = "finish_reason"
+		}
+		switch mismatch.Value {
+		case "string", "number", "array", "object", "bool":
+			value = mismatch.Value
+		}
+	}
+	log.Printf("识别诊断 模型阶段=response_envelope 原因=%s 字段=%s 类型=%s 字节=%d", reason, field, value, size)
+}
+
+// 只输出白名单中的字段类别和 JSON 类型，不输出模型返回内容。
+func logModelJSONError(err error) {
+	field, value := "other", "other"
+	var mismatch *json.UnmarshalTypeError
+	if errors.As(err, &mismatch) {
+		switch mismatch.Field {
+		case "days.weekday", "slots.weekday", "lessons.weekday":
+			field = "weekday"
+		case "days.date":
+			field = "date"
+		case "days.dishes":
+			field = "dishes"
+		case "slots.start", "slots.end":
+			field = "time"
+		case "slots.title", "lessons.slot", "lessons.subject":
+			field = "title"
+		case "warnings":
+			field = "warnings"
+		case "days", "slots", "lessons":
+			field = "items"
+		}
+		switch mismatch.Value {
+		case "string", "number", "array", "object", "bool":
+			value = mismatch.Value
+		}
+	}
+	log.Printf("识别诊断 模型阶段=result_json_format 字段=%s 类型=%s", field, value)
+}
+
+func normalizeSchedule(value *ScheduleResult) error {
+	for i := range value.Slots {
+		for _, timeValue := range []**string{&value.Slots[i].Start, &value.Slots[i].End} {
+			if *timeValue == nil {
+				continue
+			}
+			t, err := time.Parse("15:04", strings.TrimSpace(**timeValue))
+			if err != nil {
+				log.Print("识别诊断 模型阶段=schedule_time_format")
+				return ErrInvalidResult
+			}
+			formatted := t.Format("15:04")
+			*timeValue = &formatted
+		}
+	}
+	return validateSchedule(*value)
 }
 
 func normalizeMenu(value *MenuResult, start time.Time) error {
 	for i := range value.Days {
 		day := &value.Days[i]
 		if day.Weekday < 0 || day.Weekday > 7 {
+			log.Print("识别诊断 校验阶段=menu_weekday_range")
 			return ErrInvalidResult
 		}
 		if day.Weekday == 0 {
 			date, err := time.Parse("2006-01-02", day.Date)
 			if err != nil {
+				log.Print("识别诊断 校验阶段=menu_weekday_missing")
 				return ErrInvalidResult
 			}
 			day.Weekday = (int(date.Weekday())+6)%7 + 1
@@ -238,25 +361,36 @@ func normalizeMenu(value *MenuResult, start time.Time) error {
 
 func validateSchedule(value ScheduleResult) error {
 	if len(value.Slots) > 100 || len(value.Lessons) > 100 || len(value.Warnings) > 40 || (len(value.Slots) == 0 && len(value.Lessons) == 0) {
+		log.Print("识别诊断 校验阶段=schedule_count")
 		return ErrInvalidResult
 	}
 	for _, slot := range value.Slots {
 		if slot.Weekday < 1 || slot.Weekday > 7 || strings.TrimSpace(slot.Title) == "" || utf8.RuneCountInString(slot.Title) > 30 {
-			return ErrInvalidResult
-		}
-		if (slot.Start == nil) != (slot.End == nil) {
+			log.Print("识别诊断 校验阶段=schedule_slot_fields")
 			return ErrInvalidResult
 		}
 		if slot.Start != nil {
-			start, e1 := time.Parse("15:04", *slot.Start)
-			end, e2 := time.Parse("15:04", *slot.End)
-			if e1 != nil || e2 != nil || !start.Before(end) {
+			if _, err := time.Parse("15:04", *slot.Start); err != nil {
+				return ErrInvalidResult
+			}
+		}
+		if slot.End != nil {
+			if _, err := time.Parse("15:04", *slot.End); err != nil {
+				return ErrInvalidResult
+			}
+		}
+		if slot.Start != nil && slot.End != nil {
+			start, _ := time.Parse("15:04", *slot.Start)
+			end, _ := time.Parse("15:04", *slot.End)
+			if !start.Before(end) {
+				log.Print("识别诊断 校验阶段=schedule_time_order")
 				return ErrInvalidResult
 			}
 		}
 	}
 	for _, lesson := range value.Lessons {
 		if lesson.Weekday < 1 || lesson.Weekday > 7 || strings.TrimSpace(lesson.Slot) == "" || utf8.RuneCountInString(lesson.Slot) > 30 || strings.TrimSpace(lesson.Subject) == "" || utf8.RuneCountInString(lesson.Subject) > 50 {
+			log.Print("识别诊断 校验阶段=schedule_lesson_fields")
 			return ErrInvalidResult
 		}
 	}
@@ -270,12 +404,22 @@ func validateSchedule(value ScheduleResult) error {
 
 func validateMenu(value MenuResult, start time.Time) error {
 	if len(value.Days) > 7 || len(value.Warnings) > 20 {
+		log.Print("识别诊断 校验阶段=menu_count")
 		return ErrInvalidResult
 	}
 	seen := map[string]bool{}
 	for _, day := range value.Days {
 		date, err := time.Parse("2006-01-02", day.Date)
-		if err != nil || date.Before(start) || !date.Before(start.AddDate(0, 0, 7)) || seen[day.Date] || len(day.Dishes) > 30 {
+		if err != nil || date.Before(start) || !date.Before(start.AddDate(0, 0, 7)) {
+			log.Print("识别诊断 校验阶段=menu_date")
+			return ErrInvalidResult
+		}
+		if seen[day.Date] {
+			log.Print("识别诊断 校验阶段=menu_duplicate_day")
+			return ErrInvalidResult
+		}
+		if len(day.Dishes) > 30 {
+			log.Print("识别诊断 校验阶段=menu_dish_count")
 			return ErrInvalidResult
 		}
 		seen[day.Date] = true
