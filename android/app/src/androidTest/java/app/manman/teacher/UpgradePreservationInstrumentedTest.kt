@@ -28,5 +28,15 @@ class UpgradePreservationInstrumentedTest {
         assertTrue(students.all { it.schoolLunchDays == null })
         assertNull(students.first().sortInitial)
         assertTrue(records.count { it.dirty } >= 52)
+        assertTrue(records.any { it.kind == RecordKind.MENU && it.id == "legacy-menu" && !it.deleted && it.payload.contains("虚构菜品") })
+        val slot = records.single { it.kind == RecordKind.TIME_SLOT && it.id == "legacy-slot" && !it.deleted }
+        assertEquals(setOf(1), RecordCodec.timeSlot(slot).weekdays)
+        assertEquals("虚构语文", RecordCodec.lesson(records.single { it.kind == RecordKind.LESSON && it.id == "legacy-lesson" }).subject)
+        val week = RecordCodec.menuWeek(records.single { it.kind == RecordKind.MENU_WEEK && !it.deleted })
+        val image = RecordCodec.attachment(records.single { it.kind == RecordKind.ATTACHMENT && it.id == week.attachmentId })
+        val preview = app.attachments.preview(account, image) { throw AssertionError("本机图片不应联网") }
+        assertEquals(24, preview.width)
+        assertEquals(32, preview.height)
+        preview.recycle()
     }
 }

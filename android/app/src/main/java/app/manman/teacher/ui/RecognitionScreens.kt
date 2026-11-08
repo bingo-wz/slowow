@@ -18,67 +18,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import app.manman.teacher.MainUiState
-import app.manman.teacher.MainViewModel
-import app.manman.teacher.recognition.MenuSuggestion
 import app.manman.teacher.recognition.NoticeSuggestion
-import org.json.JSONObject
-import java.time.LocalDate
-
-@Composable
-fun MenuReviewScreen(result: MenuSuggestion, state: MainUiState, viewModel: MainViewModel, back: () -> Unit) {
-    var contents by rememberSaveable(result.start.toString()) {
-        mutableStateOf(JSONObject().apply { result.days.forEach { put(it.day.toString(), it.dishes.joinToString("\n")) } }.toString())
-    }
-    var confirmExit by remember { mutableStateOf(false) }
-    var confirmReplace by remember { mutableStateOf(false) }
-    val values = JSONObject(contents)
-    val entries = result.days.map { it.day }.distinct().associateWith { values.optString(it.toString()).trim() }.filterValues(String::isNotBlank)
-    fun leave() { confirmExit = true }
-    fun save() { viewModel.saveRecognizedMenus(result.start, entries, back) }
-    BackHandler { leave() }
-    Column(Modifier.fillMaxSize()) {
-        PageHeader("核对菜单", "逐日检查菜名，清空某天可跳过", back = ::leave)
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            if (result.warnings.isNotEmpty()) Block {
-                Text("需要留意", style = MaterialTheme.typography.titleMedium)
-                result.warnings.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
-            }
-            if (result.days.isEmpty()) Text("没有识别出可以确认的菜单，可返回后手动填写。", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            result.days.sortedBy { it.day }.forEach { item ->
-                SectionHeading(item.day.toString())
-                state.menus.firstOrNull { it.day == item.day }?.let { existing ->
-                    Text("已有菜单：${existing.dishes.replace('\n', '、')}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                QuietTextField(values.optString(item.day.toString()), { changed ->
-                    contents = JSONObject(contents).put(item.day.toString(), changed.take(3000)).toString()
-                }, "识别出的菜名，每行一道", singleLine = false, modifier = Modifier.height(144.dp))
-            }
-            Text("识别可能有遗漏或错误，请对照原图确认。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(16.dp))
-        }
-        MainButton("确认保存菜单", {
-            if (entries.any { (day, text) -> state.menus.any { it.day == day && it.dishes != text } }) confirmReplace = true else save()
-        }, enabled = entries.isNotEmpty() && !state.busy, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp))
-        Spacer(Modifier.height(16.dp))
-    }
-    if (confirmReplace) AlertDialog(
-        onDismissRequest = { confirmReplace = false }, title = { Text("替换已有菜单？") },
-        text = { Text("已填写过的对应日期会改为本次核对后的内容。") },
-        confirmButton = { TextButton(onClick = { confirmReplace = false; save() }) { Text("确认替换") } },
-        dismissButton = { TextButton(onClick = { confirmReplace = false }) { Text("继续核对") } },
-    )
-    if (confirmExit) AlertDialog(
-        onDismissRequest = { confirmExit = false }, title = { Text("放弃本次识别结果？") },
-        text = { Text("未保存的校对内容不会保留。") },
-        confirmButton = { TextButton(onClick = { confirmExit = false; viewModel.clearMenuSuggestion(); back() }) { Text("放弃") } },
-        dismissButton = { TextButton(onClick = { confirmExit = false }) { Text("继续核对") } },
-    )
-}
 
 @Composable
 fun NoticeReviewScreen(result: NoticeSuggestion, back: () -> Unit, onSelect: (Int) -> Unit) {

@@ -12,45 +12,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
-func TestMenuRequestAndResponseAreValidated(t *testing.T) {
-	var request map[string]any
-	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer example-test-key" {
-			t.Error("missing authorization")
-		}
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-			t.Error(err)
-		}
-		fmt.Fprint(w, `{"choices":[{"finish_reason":"stop","message":{"content":"{\"days\":[{\"date\":\"2026-11-09\",\"dishes\":[\"番茄炒蛋\"]}],\"warnings\":[]}"}}]}`)
-	}))
-	defer mock.Close()
-	key := filepath.Join(t.TempDir(), "key")
-	if err := os.WriteFile(key, []byte("example-test-key"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	client := &Client{endpoint: mock.URL, model: "test-model", keyFile: key, http: mock.Client()}
-	week, _ := time.Parse("2006-01-02", "2026-11-09")
-	result, err := client.Menu(context.Background(), week, []Image{{MIME: "image/png", Data: []byte("example")}})
-	if err != nil || len(result.Days) != 1 || result.Days[0].Dishes[0] != "番茄炒蛋" {
-		t.Fatalf("菜单解析: %#v %v", result, err)
-	}
-	encoded, _ := json.Marshal(request)
-	if !strings.Contains(string(encoded), "data:image/png;base64,") || request["max_completion_tokens"] != float64(4096) {
-		t.Fatal("请求缺少图片或输出上限")
-	}
-	wrongWeek := result
-	wrongWeek.Days[0].Date = "2026-11-20"
-	if err := validateMenu(wrongWeek, week); err == nil {
-		t.Fatal("不能接受目标周以外的日期")
-	}
-}
-
-func TestScheduleAcceptsLargeValidModelResponse(t *testing.T) {
+func TestNoticeAcceptsLargeValidModelResponse(t *testing.T) {
 	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		content := `{"slots":[{"weekday":1,"title":"第一节","start":"09:05","end":"09:45"}],"lessons":[],"warnings":[]}`
+		content := `{"items":[{"title":"虚构班会","date":null,"time":null,"evidence":"","uncertain":true}],"warnings":[]}`
 		_ = json.NewEncoder(w).Encode(map[string]any{"padding": strings.Repeat("x", 600<<10), "choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]any{"content": content}}}})
 	}))
 	defer mock.Close()
@@ -59,8 +25,8 @@ func TestScheduleAcceptsLargeValidModelResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 	client := &Client{endpoint: mock.URL, model: "test-model", keyFile: key, http: mock.Client()}
-	result, err := client.Schedule(context.Background(), "虚构作息", nil)
-	if err != nil || len(result.Slots) != 1 {
+	result, err := client.Notice(context.Background(), "虚构通知", nil)
+	if err != nil || len(result.Items) != 1 {
 		t.Fatalf("完整响应被错误截断: %v", err)
 	}
 }
@@ -79,7 +45,7 @@ func TestMalformedModelEnvelopeDoesNotLeakContent(t *testing.T) {
 		t.Fatal(err)
 	}
 	client := &Client{endpoint: mock.URL, model: "test-model", keyFile: key, http: mock.Client()}
-	if _, err := client.Schedule(context.Background(), "虚构作息", nil); err != ErrInvalidResult {
+	if _, err := client.Notice(context.Background(), "虚构通知", nil); err != ErrInvalidResult {
 		t.Fatalf("异常响应应被拒绝: %v", err)
 	}
 	if !strings.Contains(output.String(), "字段=content") || strings.Contains(output.String(), "虚构学生姓名") {
@@ -112,66 +78,5 @@ func TestOnlyOfficialEndpointsAreAllowed(t *testing.T) {
 	}
 	if _, err := New("https://api.xiaomimimo.com/v1/chat/completions", "model", "/tmp/key"); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestMenuUsesVisibleWeekdayBeforeMismatchingDate(t *testing.T) {
-	week, _ := time.Parse("2006-01-02", "2026-11-09")
-	result := MenuResult{Days: []MenuDay{
-		{Weekday: 1, Date: "2026-10-30", Dishes: []string{"甲"}},
-		{Weekday: 4, Date: "2026-10-29", Dishes: []string{"乙"}},
-		{Date: "2026-10-28", Dishes: []string{"丙"}},
-	}}
-	if err := normalizeMenu(&result, week); err != nil {
-		t.Fatal(err)
-	}
-	if result.Days[0].Date != "2026-11-09" || result.Days[1].Date != "2026-11-12" || result.Days[2].Date != "2026-11-11" {
-		t.Fatalf("星期映射错误: %#v", result.Days)
-	}
-	if len(result.Warnings) != 2 {
-		t.Fatalf("缺少日期冲突或推算提示: %#v", result.Warnings)
-	}
-	duplicate := MenuResult{Days: []MenuDay{{Weekday: 1, Dishes: []string{"甲"}}, {Weekday: 1, Dishes: []string{"乙"}}}}
-	if normalizeMenu(&duplicate, week) == nil {
-		t.Fatal("不能接受重复星期")
-	}
-}
-
-func TestScheduleValidatesDifferentWeekdayTimes(t *testing.T) {
-	a, b, c, d := "09:05", "09:45", "08:35", "09:15"
-	result := ScheduleResult{Slots: []ScheduleSlot{
-		{Weekday: 1, Title: "第一节", Start: &a, End: &b},
-		{Weekday: 2, Title: "第一节", Start: &c, End: &d},
-	}, Lessons: []ScheduleLesson{{Weekday: 1, Slot: "第一节", Subject: "语文"}}}
-	if err := validateSchedule(result); err != nil {
-		t.Fatal(err)
-	}
-	result.Slots[0].End = &c
-	if validateSchedule(result) == nil {
-		t.Fatal("不能接受结束早于开始")
-	}
-}
-
-func TestScheduleKeepsPartialTimesAndIgnoresExtraModelFields(t *testing.T) {
-	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		content := `{"slots":[{"weekday":1,"title":"晨检","start":null,"end":"8:35","confidence":0.8}],"lessons":[],"warnings":[],"extra":"忽略内容"}`
-		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]any{"content": content}}}})
-	}))
-	defer mock.Close()
-	key := filepath.Join(t.TempDir(), "key")
-	if err := os.WriteFile(key, []byte("example-test-key"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	client := &Client{endpoint: mock.URL, model: "test-model", keyFile: key, http: mock.Client()}
-	result, err := client.Schedule(context.Background(), "虚构作息", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Slots) != 1 || result.Slots[0].Start != nil || result.Slots[0].End == nil || *result.Slots[0].End != "08:35" {
-		t.Fatalf("未知开始时间或已知结束时间未正确保留: %#v", result.Slots)
-	}
-	bad := "不确定"
-	if err := normalizeSchedule(&ScheduleResult{Slots: []ScheduleSlot{{Weekday: 1, Title: "第一节", Start: &bad}}}); err == nil {
-		t.Fatal("不应猜测无法解析的时间")
 	}
 }

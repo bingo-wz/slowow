@@ -45,9 +45,8 @@ func New(verifier auth.Verifier, repository store.Store, files *attachments.Stor
 	s.mux.Handle("GET /v1/records", s.authorize(http.HandlerFunc(s.pull)))
 	s.mux.Handle("PUT /v1/attachments/{id}", s.authorize(http.HandlerFunc(s.putAttachment)))
 	s.mux.Handle("GET /v1/attachments/{id}", s.authorize(http.HandlerFunc(s.getAttachment)))
-	s.mux.Handle("POST /v1/recognize/{kind}", observeRecognition(s.authorize(http.HandlerFunc(s.recognize)), ""))
+	s.mux.Handle("POST /v1/recognize/notice", observeRecognition(s.authorize(http.HandlerFunc(s.recognize))))
 	s.mux.Handle("POST /v1/recognize/claim", s.authorize(http.HandlerFunc(s.claimRecognition)))
-	s.mux.Handle("POST /v1/recognize/schedule", observeRecognition(s.authorize(http.HandlerFunc(s.recognizeSchedule)), "schedule"))
 	return s
 }
 

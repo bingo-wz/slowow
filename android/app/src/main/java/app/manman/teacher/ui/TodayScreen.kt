@@ -31,12 +31,10 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.time.Instant
-import java.time.DayOfWeek
-import java.time.temporal.TemporalAdjusters
 
 @Composable
 fun TodayScreen(state: MainUiState, onLunch: () -> Unit, onLeave: () -> Unit, onMark: () -> Unit, onClass: () -> Unit,
-    onSettings: () -> Unit, onMenu: () -> Unit, onSchedule: () -> Unit, onWork: () -> Unit, onTask: (String) -> Unit, onImage: (String) -> Unit) {
+    onSettings: () -> Unit, onMenu: () -> Unit, onSchedule: () -> Unit, onWork: () -> Unit, onTask: (String) -> Unit) {
     val today = LocalDate.now(LunchRules.defaultZone)
     val overrides = state.overrides.filter { it.day == today }.associate { it.studentId to it.value }
     val lunch = LunchRules.calculate(today, state.students, state.leaves, overrides, state.cutoff)
@@ -80,6 +78,9 @@ fun TodayScreen(state: MainUiState, onLunch: () -> Unit, onLeave: () -> Unit, on
                 }
                 if (lunch.students.isEmpty()) Text(status, color = MaterialTheme.colorScheme.onPrimaryContainer, style = MaterialTheme.typography.labelMedium)
             }
+            Block(onClick = onMenu) {
+                DashboardHeading("本周菜单", "查看  ›")
+            }
             val slots = state.timeSlots.associateBy { it.id }
             val lessons = state.lessons.filter { it.weekday == today.dayOfWeek.value && slots.containsKey(it.slotId) }
                 .sortedBy { slots.getValue(it.slotId).start }
@@ -103,15 +104,6 @@ fun TodayScreen(state: MainUiState, onLunch: () -> Unit, onLeave: () -> Unit, on
                         ?: task.dueDate?.toString()?.plus("（仅日期）") ?: "未设置时间",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-            }
-            val menu = state.menus.firstOrNull { it.day == today }
-            Block(onClick = onMenu) {
-                DashboardHeading("今天吃什么", "编辑菜单")
-                if (menu == null) Text("还没有添加今天的菜单", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                else menu.dishes.lines().filter(String::isNotBlank).forEach { dish -> Text("·  ${dish.trim()}") }
-            }
-            state.menuWeeks.firstOrNull { it.start == today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)) }?.let { week ->
-                TextButton(onClick = { onImage(week.attachmentId) }) { Text("查看本周菜单原图  ›") }
             }
             Spacer(Modifier.height(16.dp))
         }

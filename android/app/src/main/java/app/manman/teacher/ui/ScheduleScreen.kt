@@ -1,9 +1,6 @@
 package app.manman.teacher.ui
 
 import android.app.TimePickerDialog
-import android.net.Uri
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -12,7 +9,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -20,7 +16,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -31,7 +26,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import app.manman.teacher.MainUiState
 import app.manman.teacher.MainViewModel
@@ -46,32 +40,15 @@ import java.util.UUID
 private val weekNames = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 
 @Composable
-fun ScheduleScreen(state: MainUiState, viewModel: MainViewModel, back: () -> Unit, onReview: () -> Unit) {
-    val dialogHeight = (LocalConfiguration.current.screenHeightDp * 0.45f).dp
+fun ScheduleScreen(state: MainUiState, viewModel: MainViewModel, back: () -> Unit) {
     var weekday by remember { mutableIntStateOf(LocalDate.now(LunchRules.defaultZone).dayOfWeek.value) }
     var editSlot by remember { mutableStateOf<TimeSlot?>(null) }
     var newSlot by remember { mutableStateOf(false) }
     var lessonSlot by remember { mutableStateOf<TimeSlot?>(null) }
-    var files by remember { mutableStateOf<List<Uri>>(emptyList()) }
-    var pdfRotation by remember { mutableIntStateOf(0) }
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { selected ->
-        val combined = (files + selected).distinct()
-        if (combined.size > 7) viewModel.reportMessage("一次最多选择 7 个文件。") else files = combined
-    }
-    fun chooseFiles() = picker.launch(arrayOf("image/*", "application/pdf", "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
     Column(Modifier.fillMaxSize()) {
         PageHeader("课程与作息", "先设置节次，再安排每周课程", back = back,
             action = { TextButton(onClick = { newSlot = true }) { Text("添加节次") } })
         Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Block {
-                Text("导入课程表和作息表", style = MaterialTheme.typography.titleMedium)
-                Text("可同时选择图片、PDF 和 Excel；识别后核对再保存。", style = MaterialTheme.typography.bodySmall)
-                if (state.busy) {
-                    LinearProgressIndicator(Modifier.fillMaxWidth())
-                    Text("正在处理，请稍候；识别较多页面可能需要一两分钟。", style = MaterialTheme.typography.bodySmall)
-                }
-                TextButton(onClick = { chooseFiles() }, enabled = !state.busy) { Text("选择文件识别") }
-            }
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 weekNames.forEachIndexed { index, label ->
                     FilterChip(selected = weekday == index + 1, onClick = { weekday = index + 1 }, label = { Text(label) }, border = null,
@@ -98,26 +75,11 @@ fun ScheduleScreen(state: MainUiState, viewModel: MainViewModel, back: () -> Uni
                         TextButton(onClick = { lessonSlot = slot }) { Text(if (lesson == null) "添加课程" else "修改课程") }
                     }
                 }
-                Text("调整时间会影响使用同一节次的星期；单独导入的节次仅在对应星期生效。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("调整时间会影响使用同一节次的课程。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(16.dp))
             }
         }
     }
-    if (files.isNotEmpty()) AlertDialog(
-        onDismissRequest = { files = emptyList() },
-        title = { Text("发送文件进行识别？") },
-        text = { Column(Modifier.heightIn(max = dialogHeight).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("已选择 ${files.size} 个文件，可继续从其他文件夹添加。将图片、PDF 页面及 Excel 表格内容发送给小米 MiMo，可能产生费用；文件中如有姓名也会一并发送。一次最多识别 5 页图片或 PDF，合计不超过 12 MB。识别结果需核对后保存。")
-            Text("PDF 如果横着显示，可以旋转页面：", style = MaterialTheme.typography.bodySmall)
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(0 to "原方向", 90 to "顺时针", 270 to "逆时针").forEach { (rotation, label) ->
-                    FilterChip(selected = pdfRotation == rotation, onClick = { pdfRotation = rotation }, label = { Text(label) })
-                }
-            }
-        } },
-        confirmButton = { TextButton(onClick = { val selected = files; files = emptyList(); viewModel.recognizeSchedule(selected, pdfRotation, onReview) }) { Text("确认发送") } },
-        dismissButton = { Column { TextButton(onClick = { chooseFiles() }) { Text("继续添加文件") }; TextButton(onClick = { files = emptyList() }) { Text("取消") } } },
-    )
     if (newSlot || editSlot != null) {
         TimeSlotDialog(editSlot, onDismiss = { newSlot = false; editSlot = null }) { slot ->
             viewModel.saveTimeSlot(slot) { newSlot = false; editSlot = null }

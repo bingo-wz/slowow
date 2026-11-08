@@ -51,7 +51,6 @@ class TeacherWorkflowInstrumentedTest {
         val students = (1..52).map { index -> Student("student-$index", "学生%02d".format(index), normallyEatsAtSchool = index > 3, position = index) }
         students.forEach { repository.saveStudent(account, it) }
         val today = LocalDate.now(LunchRules.defaultZone)
-        repository.saveMenu(account, today, "番茄炒蛋\n清炒青菜")
         val slot = TimeSlot("slot-1", "第一节", LocalTime.of(8, 0), LocalTime.of(8, 40))
         repository.saveTimeSlot(account, slot)
         repository.saveLesson(account, Lesson("lesson-1", today.dayOfWeek.value, slot.id, "语文"))
@@ -60,6 +59,8 @@ class TeacherWorkflowInstrumentedTest {
                 today.atTime(9, 0).atZone(LunchRules.defaultZone).toInstant()))
         }
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        val oldScale = device.executeShellCommand("settings get system font_scale").trim()
+        device.executeShellCommand("settings put system font_scale 1.0")
         val scenario = ActivityScenario.launch(MainActivity::class.java)
         try {
             val homeVisible = device.wait(Until.hasObject(By.text("午餐核验")), 20_000)
@@ -90,6 +91,23 @@ class TeacherWorkflowInstrumentedTest {
             tapText(device, "课程与作息")
             assertTrue(device.wait(Until.hasObject(By.text("第一节")), 10_000))
             assertTrue(device.wait(Until.hasObject(By.text("语文")), 10_000))
+            assertTrue(!device.hasObject(By.textContains("导入课程")))
+            tapText(device, "添加节次")
+            assertTrue(device.wait(Until.hasObject(By.clazz("android.widget.EditText")), 10_000))
+            device.findObject(By.clazz("android.widget.EditText")).text = "活动"
+            tapText(device, "保存")
+            assertTrue(device.wait(Until.hasObject(By.text("活动")), 10_000))
+            repeat(3) {
+                if (!device.hasObject(By.text("添加课程"))) {
+                    device.swipe(device.displayWidth / 2, device.displayHeight * 3 / 4,
+                        device.displayWidth / 2, device.displayHeight / 3, 20)
+                }
+            }
+            tapText(device, "添加课程")
+            assertTrue(device.wait(Until.hasObject(By.clazz("android.widget.EditText")), 10_000))
+            device.findObject(By.clazz("android.widget.EditText")).text = "班会"
+            tapText(device, "保存")
+            assertTrue(device.wait(Until.hasObject(By.text("班会")), 10_000))
             device.pressBack()
             scenario.onActivity { activity ->
                 activity.startActivity(Intent(activity, MainActivity::class.java).setAction(Intent.ACTION_SEND)
@@ -148,6 +166,8 @@ class TeacherWorkflowInstrumentedTest {
         } finally {
             scenario.close()
             SecureSessionStore(application).clear()
+            if (oldScale == "null" || oldScale.isBlank()) device.executeShellCommand("settings delete system font_scale")
+            else device.executeShellCommand("settings put system font_scale $oldScale")
         }
         Unit
     }
@@ -155,7 +175,7 @@ class TeacherWorkflowInstrumentedTest {
     private fun tapText(device: UiDevice, text: String) {
         repeat(3) {
             try {
-                val element = device.findObject(By.text(text))
+                val element = device.wait(Until.findObject(By.text(text)), 5_000)
                 if (element != null) {
                     element.click()
                     return
@@ -164,6 +184,9 @@ class TeacherWorkflowInstrumentedTest {
                 device.waitForIdle()
             }
         }
+        val cache = ApplicationProvider.getApplicationContext<ManmanApplication>().cacheDir
+        device.dumpWindowHierarchy(File(cache, "manman-tap-failed.xml"))
+        device.takeScreenshot(File(cache, "manman-tap-failed.png"))
         throw AssertionError("无法点击界面文字：$text")
     }
 }

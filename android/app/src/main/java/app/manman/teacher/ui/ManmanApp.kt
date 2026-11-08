@@ -30,7 +30,7 @@ import app.manman.teacher.IncomingShare
 
 private enum class Page {
     TODAY, RECORDS, CLASS, SETTINGS, IMPORT, STUDENT, LEAVE, LUNCH, MARKING, MARKING_DETAIL,
-    MENU, SCHEDULE, SCHEDULE_REVIEW, WORK, NOTICE_DETAIL, NOTICE_EDIT, TASK_DETAIL, TASK_EDIT, IMAGE, LUNCH_HISTORY, MENU_REVIEW, NOTICE_REVIEW,
+    MENU, SCHEDULE, WORK, NOTICE_DETAIL, NOTICE_EDIT, TASK_DETAIL, TASK_EDIT, IMAGE, LUNCH_HISTORY, NOTICE_REVIEW,
 }
 
 @Composable
@@ -48,7 +48,12 @@ fun ManmanApp(viewModel: MainViewModel, shared: IncomingShare? = null, consumeSh
     var sharedDraft by rememberSaveable { mutableStateOf("") }
     var sharedImages by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
     var confirmShare by rememberSaveable { mutableStateOf(false) }
-    val page = Page.valueOf(pageName)
+    // 覆盖安装时，已移除页面的恢复状态回到对应的普通页面。
+    val page = when (pageName) {
+        "MENU_REVIEW" -> Page.MENU
+        "SCHEDULE_REVIEW" -> Page.SCHEDULE
+        else -> Page.entries.firstOrNull { it.name == pageName } ?: Page.TODAY
+    }
     val snackbar = remember { SnackbarHostState() }
     val message = state.error ?: state.message
     LaunchedEffect(message) {
@@ -74,15 +79,12 @@ fun ManmanApp(viewModel: MainViewModel, shared: IncomingShare? = null, consumeSh
     fun go(pageToOpen: Page) { pageName = pageToOpen.name }
     fun back() {
         if (page == Page.NOTICE_REVIEW) viewModel.clearNoticeSuggestion()
-        if (page == Page.SCHEDULE_REVIEW) viewModel.clearScheduleSuggestion()
         go(when (page) {
             Page.IMPORT, Page.STUDENT, Page.MARKING -> Page.CLASS
             Page.MARKING_DETAIL -> Page.RECORDS
             Page.LEAVE -> Page.valueOf(leaveReturn)
             Page.LUNCH, Page.SETTINGS -> Page.TODAY
             Page.LUNCH_HISTORY -> Page.RECORDS
-            Page.MENU_REVIEW -> Page.MENU
-            Page.SCHEDULE_REVIEW -> Page.SCHEDULE
             Page.NOTICE_REVIEW -> Page.NOTICE_DETAIL
             Page.MENU, Page.SCHEDULE, Page.WORK -> Page.TODAY
             Page.NOTICE_DETAIL -> Page.WORK
@@ -121,7 +123,7 @@ fun ManmanApp(viewModel: MainViewModel, shared: IncomingShare? = null, consumeSh
                     Page.TODAY -> TodayScreen(state, { go(Page.LUNCH) }, { selectedId = ""; leaveReturn = Page.TODAY.name; go(Page.LEAVE) }, { go(Page.MARKING) }, { go(Page.CLASS) },
                         { go(Page.SETTINGS) }, { go(Page.MENU) }, { go(Page.SCHEDULE) }, { go(Page.WORK) }, {
                             selectedTaskId = it; suggestionIndex = -1; taskReturn = Page.TODAY.name; go(Page.TASK_DETAIL)
-                        }, { imageId = it; imageReturn = Page.TODAY.name; go(Page.IMAGE) })
+                        })
                     Page.RECORDS -> RecordsScreen(state, viewModel,
                         onLeave = { selectedId = ""; leaveReturn = Page.RECORDS.name; go(Page.LEAVE) },
                         onEditLeave = { selectedId = it; leaveReturn = Page.RECORDS.name; go(Page.LEAVE) },
@@ -135,11 +137,8 @@ fun ManmanApp(viewModel: MainViewModel, shared: IncomingShare? = null, consumeSh
                     Page.LUNCH -> LunchScreen(state, viewModel, ::back) { go(Page.IMPORT) }
                     Page.MARKING -> MarkingScreen(state, viewModel, ::back) { go(Page.IMPORT) }
                     Page.MARKING_DETAIL -> state.markings.firstOrNull { it.id == selectedId }?.let { MarkingDetailScreen(it, ::back) }
-                    Page.MENU -> MenuScreen(state, viewModel, ::back,
-                        onImage = { imageId = it; imageReturn = Page.MENU.name; go(Page.IMAGE) },
-                        onRecognize = { start, id -> viewModel.recognizeMenu(start, id) { go(Page.MENU_REVIEW) } })
-                    Page.SCHEDULE -> ScheduleScreen(state, viewModel, ::back) { go(Page.SCHEDULE_REVIEW) }
-                    Page.SCHEDULE_REVIEW -> state.scheduleSuggestion?.let { ScheduleReviewScreen(it, state, viewModel, ::back) }
+                    Page.MENU -> MenuScreen(state, viewModel, ::back)
+                    Page.SCHEDULE -> ScheduleScreen(state, viewModel, ::back)
                     Page.WORK -> WorkScreen(state, ::back, onNotice = { selectedNoticeId = it; go(Page.NOTICE_DETAIL) },
                         onTask = { selectedTaskId = it; suggestionIndex = -1; taskReturn = Page.WORK.name; go(Page.TASK_DETAIL) },
                         onAddNotice = { selectedNoticeId = ""; sharedDraft = ""; sharedImages = emptyList(); go(Page.NOTICE_EDIT) },
@@ -164,7 +163,6 @@ fun ManmanApp(viewModel: MainViewModel, shared: IncomingShare? = null, consumeSh
                         })
                     Page.IMAGE -> ImageScreen(state, imageId, ::back)
                     Page.LUNCH_HISTORY -> state.reviews.firstOrNull { it.id == selectedId }?.let { LunchReviewDetailScreen(it, ::back) }
-                    Page.MENU_REVIEW -> state.menuSuggestion?.let { MenuReviewScreen(it, state, viewModel, ::back) }
                     Page.NOTICE_REVIEW -> state.noticeSuggestion?.let { suggestion ->
                         NoticeReviewScreen(suggestion, ::back) { index -> selectedTaskId = ""; suggestionIndex = index; go(Page.TASK_EDIT) }
                     }

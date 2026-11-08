@@ -146,19 +146,10 @@ func TestAttachmentEndpointsRequireOwnerAndKeepFilesSeparate(t *testing.T) {
 
 type fakeRecognizer struct{ called int }
 
-func (f *fakeRecognizer) Menu(_ context.Context, week time.Time, images []recognition.Image) (recognition.MenuResult, error) {
-	f.called++
-	return recognition.MenuResult{Days: []recognition.MenuDay{{Date: week.Format("2006-01-02"), Dishes: []string{"虚构菜品"}}}}, nil
-}
 func (f *fakeRecognizer) Notice(_ context.Context, _ string, _ []recognition.Image) (recognition.NoticeResult, error) {
 	f.called++
 	return recognition.NoticeResult{Items: []recognition.NoticeItem{}}, nil
 }
-func (f *fakeRecognizer) Schedule(_ context.Context, _ string, _ []recognition.Image) (recognition.ScheduleResult, error) {
-	f.called++
-	return recognition.ScheduleResult{Lessons: []recognition.ScheduleLesson{{Weekday: 1, Slot: "第一节", Subject: "语文"}}}, nil
-}
-
 func TestRecognitionRequiresConfirmationAndOwnImages(t *testing.T) {
 	files, err := attachments.New(t.TempDir())
 	if err != nil {
@@ -187,13 +178,13 @@ func TestRecognitionRequiresConfirmationAndOwnImages(t *testing.T) {
 	}
 	server := New(twoOwnersVerifier{}, &fakeStore{}, files, model, gate)
 	request := func(token, body string) int {
-		req := httptest.NewRequest(http.MethodPost, "/v1/recognize/menu", strings.NewReader(body))
+		req := httptest.NewRequest(http.MethodPost, "/v1/recognize/notice", strings.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+token)
 		result := httptest.NewRecorder()
 		server.ServeHTTP(result, req)
 		return result.Code
 	}
-	body := `{"confirmed":true,"imageIds":["` + id + `"],"text":"","weekStart":"2026-11-09"}`
+	body := `{"confirmed":true,"imageIds":["` + id + `"],"text":"","weekStart":""}`
 	if got := request("b", body); got != http.StatusNotFound || model.called != 0 {
 		t.Fatalf("跨账号图片: %d", got)
 	}
@@ -236,62 +227,16 @@ func TestRecognitionClaimBindsTwoAccounts(t *testing.T) {
 	}
 }
 
-func TestScheduleRecognitionRequiresConfirmationAndBoundAccount(t *testing.T) {
-	dir := t.TempDir()
-	digest := sha256.Sum256([]byte("12345678"))
-	hashFile := filepath.Join(dir, "pair.hash")
-	if err := os.WriteFile(hashFile, []byte(hex.EncodeToString(digest[:])), 0600); err != nil {
-		t.Fatal(err)
-	}
-	gate, _ := recognition.NewGate(hashFile, filepath.Join(dir, "owner"))
-	if err := gate.Claim("a", "12345678", time.Now().Add(-10*time.Second)); err != nil {
-		t.Fatal(err)
-	}
+func TestRemovedRecognitionEndpointsAreUnavailable(t *testing.T) {
 	model := &fakeRecognizer{}
-	server := New(twoOwnersVerifier{}, &fakeStore{}, nil, model, gate)
-	image := []byte{137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0}
-	send := func(token string, confirmed bool) int {
-		body, _ := json.Marshal(scheduleRequest{Confirmed: confirmed, Files: []scheduleFile{{Kind: "image/png", Data: image}}})
-		req := httptest.NewRequest(http.MethodPost, "/v1/recognize/schedule", bytes.NewReader(body))
-		req.Header.Set("Authorization", "Bearer "+token)
+	server := New(fakeVerifier{}, &fakeStore{}, nil, model, nil)
+	for _, path := range []string{"/v1/recognize/menu", "/v1/recognize/schedule"} {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{}`))
+		req.Header.Set("Authorization", "Bearer valid")
 		result := httptest.NewRecorder()
 		server.ServeHTTP(result, req)
-		return result.Code
-	}
-	if got := send("b", true); got != http.StatusForbidden || model.called != 0 {
-		t.Fatalf("未绑定账号: %d", got)
-	}
-	if got := send("a", false); got != http.StatusBadRequest || model.called != 0 {
-		t.Fatalf("未确认请求: %d", got)
-	}
-	if got := send("a", true); got != http.StatusOK || model.called != 1 {
-		t.Fatalf("正常识别: %d", got)
-	}
-}
-
-func TestLegacyExcelRecognitionShowsMergeWarning(t *testing.T) {
-	dir := t.TempDir()
-	digest := sha256.Sum256([]byte("12345678"))
-	hashFile := filepath.Join(dir, "pair.hash")
-	if err := os.WriteFile(hashFile, []byte(hex.EncodeToString(digest[:])), 0600); err != nil {
-		t.Fatal(err)
-	}
-	gate, _ := recognition.NewGate(hashFile, filepath.Join(dir, "owner"))
-	if err := gate.Claim("a", "12345678", time.Now()); err != nil {
-		t.Fatal(err)
-	}
-	model := &fakeRecognizer{}
-	server := New(twoOwnersVerifier{}, &fakeStore{}, nil, model, gate)
-	data, err := os.ReadFile("../recognition/testdata/fictional.xls")
-	if err != nil {
-		t.Fatal(err)
-	}
-	body, _ := json.Marshal(scheduleRequest{Confirmed: true, Files: []scheduleFile{{Kind: "xls", Data: data}}})
-	request := httptest.NewRequest(http.MethodPost, "/v1/recognize/schedule", bytes.NewReader(body))
-	request.Header.Set("Authorization", "Bearer a")
-	result := httptest.NewRecorder()
-	server.ServeHTTP(result, request)
-	if result.Code != http.StatusOK || !strings.Contains(result.Body.String(), "旧版 XLS") {
-		t.Fatalf("旧版表格缺少合并单元格提示: %d %s", result.Code, result.Body.String())
+		if result.Code != http.StatusNotFound || model.called != 0 {
+			t.Fatalf("已移除的识别接口仍可调用: %s %d", path, result.Code)
+		}
 	}
 }

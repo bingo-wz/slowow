@@ -8,7 +8,6 @@ import (
 	"image/color"
 	"image/draw"
 	"image/png"
-	"net/http"
 	"os"
 	"time"
 
@@ -37,90 +36,6 @@ func main() {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 75*time.Second)
 	defer cancel()
-	if len(os.Args) > 1 && (os.Args[1] == "schedule" || os.Args[1] == "schedule-image") {
-		table := "虚构示例：周一第一节 09:05-09:45 语文；周二第一节 08:35-09:15 数学。"
-		var images []recognition.Image
-		if os.Args[1] == "schedule-image" {
-			if len(os.Args) < 3 || len(os.Args) > 7 {
-				os.Exit(1)
-			}
-			for _, path := range os.Args[2:] {
-				data, err := os.ReadFile(path)
-				if err != nil || len(data) > 8<<20 {
-					os.Exit(1)
-				}
-				mime := http.DetectContentType(data)
-				if mime != "image/jpeg" && mime != "image/png" && mime != "image/webp" {
-					os.Exit(1)
-				}
-				images = append(images, recognition.Image{MIME: mime, Data: data})
-			}
-			table = ""
-		}
-		result, err := client.Schedule(ctx, table, images)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "模拟课表识别失败。 ")
-			os.Exit(1)
-		}
-		var monday, tuesday bool
-		type slotKey struct {
-			weekday int
-			title   string
-		}
-		counts := make(map[slotKey]int)
-		missingTimes := 0
-		for _, slot := range result.Slots {
-			counts[slotKey{slot.Weekday, slot.Title}]++
-			if slot.Start == nil || slot.End == nil {
-				missingTimes++
-			}
-			if slot.Start == nil {
-				continue
-			}
-			monday = monday || (slot.Weekday == 1 && *slot.Start == "09:05")
-			tuesday = tuesday || (slot.Weekday == 2 && *slot.Start == "08:35")
-		}
-		if !monday || !tuesday || len(result.Lessons) < 2 {
-			fmt.Fprintln(os.Stderr, "模拟课表识别未匹配两个星期的时间。 ")
-			os.Exit(1)
-		}
-		unmatched, duplicates := 0, 0
-		for _, count := range counts {
-			if count > 1 {
-				duplicates += count - 1
-			}
-		}
-		for _, lesson := range result.Lessons {
-			if counts[slotKey{lesson.Weekday, lesson.Slot}] != 1 {
-				unmatched++
-			}
-		}
-		fmt.Printf("课表识别成功：%d 个作息、%d 项课程，缺时间 %d 项、未匹配 %d 项、重复节次 %d 项。\n", len(result.Slots), len(result.Lessons), missingTimes, unmatched, duplicates)
-		return
-	}
-	if len(os.Args) == 3 && os.Args[1] == "menu-image" {
-		data, err := os.ReadFile(os.Args[2])
-		if err != nil || len(data) > 1<<20 {
-			os.Exit(1)
-		}
-		week, _ := time.Parse("2006-01-02", "2026-11-09")
-		result, err := client.Menu(ctx, week, []recognition.Image{{MIME: "image/png", Data: data}})
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "模拟菜单图片识别失败。 ")
-			os.Exit(1)
-		}
-		var monday, tuesday bool
-		for _, day := range result.Days {
-			monday = monday || day.Date == "2026-11-09"
-			tuesday = tuesday || day.Date == "2026-11-10"
-		}
-		if !monday || !tuesday {
-			fmt.Fprintln(os.Stderr, "模拟菜单未按星期映射。 ")
-			os.Exit(1)
-		}
-		fmt.Printf("模拟菜单图片识别成功：%d 天。\n", len(result.Days))
-		return
-	}
 	result, err := client.Notice(ctx, "测试通知：请于2026年11月9日上午10点组织一次虚构班会。", []recognition.Image{{MIME: "image/png", Data: encoded.Bytes()}})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "识别调用未通过，请检查密钥、额度及模型权限。")

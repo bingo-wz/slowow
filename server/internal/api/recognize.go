@@ -24,7 +24,8 @@ type recognitionRequest struct {
 	Confirmed bool     `json:"confirmed"`
 	ImageIDs  []string `json:"imageIds"`
 	Text      string   `json:"text"`
-	WeekStart string   `json:"weekStart"`
+	// 旧版通知请求曾包含该字段，保留解码兼容。
+	WeekStart string `json:"weekStart"`
 }
 
 func (s *Server) recognize(w http.ResponseWriter, r *http.Request) {
@@ -49,21 +50,10 @@ func (s *Server) recognize(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", "请求内容无效。")
 		return
 	}
-	kind := r.PathValue("kind")
 	if !input.Confirmed || len(input.ImageIDs) > 5 || utf8.RuneCountInString(input.Text) > 10000 ||
-		(kind != "menu" && kind != "notice") || (kind == "menu" && len(input.ImageIDs) != 1) ||
-		(kind == "notice" && strings.TrimSpace(input.Text) == "" && len(input.ImageIDs) == 0) {
+		(strings.TrimSpace(input.Text) == "" && len(input.ImageIDs) == 0) {
 		writeError(w, http.StatusBadRequest, "invalid_request", "请先确认要发送的内容。")
 		return
-	}
-	var weekStart time.Time
-	var err error
-	if kind == "menu" {
-		weekStart, err = time.Parse("2006-01-02", input.WeekStart)
-		if err != nil || weekStart.Weekday() != time.Monday {
-			writeError(w, http.StatusBadRequest, "invalid_week", "请选择周一作为菜单起始日期。")
-			return
-		}
 	}
 	select {
 	case s.recognizing <- struct{}{}:
@@ -112,15 +102,6 @@ func (s *Server) recognize(w http.ResponseWriter, r *http.Request) {
 	}
 	if !s.allowRecognition(owner, time.Now()) {
 		writeError(w, http.StatusTooManyRequests, "recognition_limit", "识别次数过多，请稍后再试。")
-		return
-	}
-	if kind == "menu" {
-		result, err := s.recognizer.Menu(r.Context(), weekStart, images)
-		if err != nil {
-			s.recognitionError(w, err)
-			return
-		}
-		writeJSON(w, http.StatusOK, result)
 		return
 	}
 	result, err := s.recognizer.Notice(r.Context(), input.Text, images)

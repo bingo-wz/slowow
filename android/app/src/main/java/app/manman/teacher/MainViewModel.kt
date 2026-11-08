@@ -11,7 +11,6 @@ import app.manman.teacher.data.LocalRecord
 import app.manman.teacher.data.LunchReview
 import app.manman.teacher.data.MarkingRecord
 import app.manman.teacher.data.MealOverrideRecord
-import app.manman.teacher.data.MenuDay
 import app.manman.teacher.data.MenuWeek
 import app.manman.teacher.data.AttachmentMeta
 import app.manman.teacher.data.TimeSlot
@@ -28,9 +27,7 @@ import app.manman.teacher.domain.Student
 import app.manman.teacher.sync.SyncPhase
 import app.manman.teacher.sync.SyncResult
 import app.manman.teacher.sync.SyncWorker
-import app.manman.teacher.recognition.MenuSuggestion
 import app.manman.teacher.recognition.NoticeSuggestion
-import app.manman.teacher.recognition.ScheduleSuggestion
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -57,7 +54,6 @@ data class MainUiState(
     val overrides: List<MealOverrideRecord> = emptyList(),
     val reviews: List<LunchReview> = emptyList(),
     val markings: List<MarkingRecord> = emptyList(),
-    val menus: List<MenuDay> = emptyList(),
     val menuWeeks: List<MenuWeek> = emptyList(),
     val attachments: List<AttachmentMeta> = emptyList(),
     val imageDrafts: Map<String, List<AttachmentMeta>> = emptyMap(),
@@ -65,9 +61,7 @@ data class MainUiState(
     val lessons: List<Lesson> = emptyList(),
     val notices: List<Notice> = emptyList(),
     val tasks: List<WorkTask> = emptyList(),
-    val menuSuggestion: MenuSuggestion? = null,
     val noticeSuggestion: NoticeSuggestion? = null,
-    val scheduleSuggestion: ScheduleSuggestion? = null,
     val cutoff: LocalTime = LunchRules.defaultCutoff,
     val lessonReminderMinutes: Int? = null,
     val lunchReminderEnabled: Boolean = false,
@@ -169,31 +163,11 @@ class MainViewModel(private val application: ManmanApplication) : ViewModel() {
         mutableState.update { it.copy(message = "班级标记已保存。") }
     }
 
-    fun saveMenu(day: LocalDate, dishes: String, onDone: () -> Unit) = perform {
-        repository.saveMenu(requireAccount(), day, dishes)
-        onDone()
-        mutableState.update { it.copy(message = "菜单已保存。") }
-    }
-
-    fun recognizeMenu(start: LocalDate, imageId: String, onDone: () -> Unit) = perform {
-        val result = application.recognition.menu(requireAccount(), start, imageId)
-        mutableState.update { it.copy(menuSuggestion = result) }
-        onDone()
-    }
-
     fun bindRecognition(code: String, onDone: () -> Unit) = perform {
         application.recognition.bind(requireAccount(), code)
         onDone()
         mutableState.update { it.copy(message = "识别服务已绑定当前账号。") }
     }
-
-    fun saveRecognizedMenus(start: LocalDate, entries: Map<LocalDate, String>, onDone: () -> Unit) = perform {
-        repository.saveMenus(requireAccount(), start, entries)
-        mutableState.update { it.copy(menuSuggestion = null, message = "菜单已保存。") }
-        onDone()
-    }
-
-    fun clearMenuSuggestion() = mutableState.update { it.copy(menuSuggestion = null) }
 
     fun recognizeNotice(notice: Notice, onDone: () -> Unit) = perform {
         val result = application.recognition.notice(requireAccount(), notice.id, notice.content, notice.attachmentIds)
@@ -209,20 +183,6 @@ class MainViewModel(private val application: ManmanApplication) : ViewModel() {
     }
 
     fun clearNoticeSuggestion() = mutableState.update { it.copy(noticeSuggestion = null) }
-
-    fun recognizeSchedule(uris: List<Uri>, pdfRotation: Int, onDone: () -> Unit) = perform {
-        val result = application.recognition.schedule(application, requireAccount(), uris, pdfRotation)
-        mutableState.update { it.copy(scheduleSuggestion = result) }
-        onDone()
-    }
-
-    fun clearScheduleSuggestion() = mutableState.update { it.copy(scheduleSuggestion = null) }
-
-    fun saveRecognizedSchedule(suggestion: ScheduleSuggestion, replace: Boolean, onDone: () -> Unit) = perform {
-        repository.saveRecognizedSchedule(requireAccount(), suggestion, replace)
-        mutableState.update { it.copy(scheduleSuggestion = null, message = "课程与作息已保存。") }
-        onDone()
-    }
 
     fun stageImages(draftId: String, uris: List<Uri>) = perform {
         val existing = state.value.imageDrafts[draftId].orEmpty()
@@ -248,14 +208,16 @@ class MainViewModel(private val application: ManmanApplication) : ViewModel() {
         viewModelScope.launch { images.forEach { image -> application.attachments.discard(image) } }
     }
 
-    fun saveMenuImage(start: LocalDate, draftId: String, onDone: () -> Unit) = perform {
+    fun saveMenuImage(start: LocalDate, uri: Uri) = perform {
         val account = requireAccount()
-        val image = state.value.imageDrafts[draftId].orEmpty().lastOrNull() ?: throw IllegalArgumentException("请先选择图片。")
-        application.attachments.adopt(account, image)
-        repository.saveMenuWeek(account, start, image)
-        discardDraft(draftId)
-        onDone()
-        mutableState.update { it.copy(message = "周菜单原图已保存。") }
+        val image = application.attachments.stage(uri)
+        try {
+            application.attachments.adopt(account, image)
+            repository.saveMenuWeek(account, start, image)
+        } finally {
+            application.attachments.discard(image)
+        }
+        mutableState.update { it.copy(message = "本周菜单已保存。") }
     }
 
     fun saveTimeSlot(slot: TimeSlot, onDone: () -> Unit) = perform {
@@ -372,7 +334,6 @@ class MainViewModel(private val application: ManmanApplication) : ViewModel() {
         val overrides = decode(RecordKind.MEAL_OVERRIDE, RecordCodec::mealOverride)
         val reviews = decode(RecordKind.LUNCH_REVIEW, RecordCodec::lunchReview).sortedByDescending(LunchReview::confirmedAt)
         val markings = decode(RecordKind.MARKING, RecordCodec::marking).sortedByDescending(MarkingRecord::createdAt)
-        val menus = decode(RecordKind.MENU, RecordCodec::menu).sortedBy(MenuDay::day)
         val menuWeeks = decode(RecordKind.MENU_WEEK, RecordCodec::menuWeek)
         val attachments = decode(RecordKind.ATTACHMENT, RecordCodec::attachment)
         val timeSlots = decode(RecordKind.TIME_SLOT, RecordCodec::timeSlot).sortedBy(TimeSlot::start)
@@ -390,7 +351,7 @@ class MainViewModel(private val application: ManmanApplication) : ViewModel() {
         val lunchReminder = reminderSettings?.optBoolean("lunchEnabled", false) ?: false
         mutableState.update { it.copy(
             students = students, leaves = leaves, overrides = overrides, reviews = reviews, markings = markings,
-            menus = menus, menuWeeks = menuWeeks, attachments = attachments,
+            menuWeeks = menuWeeks, attachments = attachments,
             timeSlots = timeSlots, lessons = lessons, notices = notices, tasks = tasks,
             cutoff = cutoff, lessonReminderMinutes = lessonReminder, lunchReminderEnabled = lunchReminder,
             pendingCount = records.count(LocalRecord::dirty),

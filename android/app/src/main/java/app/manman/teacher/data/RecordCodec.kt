@@ -18,6 +18,7 @@ object RecordKind {
     const val MEAL_OVERRIDE = "meal_override"
     const val LUNCH_REVIEW = "lunch_review"
     const val MARKING = "marking"
+    // 保留旧版日菜单类型，以兼容已有记录的同步与冲突处理。
     const val MENU = "menu"
     const val MENU_WEEK = "menu_week"
     const val NOTICE = "notice"
@@ -39,7 +40,6 @@ data class MarkingRecord(
     val createdAt: Instant,
     val students: List<MarkingStudent>,
 )
-data class MenuDay(val id: String, val day: LocalDate, val dishes: String)
 data class MenuWeek(val id: String, val start: LocalDate, val attachmentId: String)
 data class AttachmentMeta(val id: String, val mime: String, val size: Long, val sha256: String)
 data class TimeSlot(val id: String, val title: String, val start: LocalTime, val end: LocalTime, val weekdays: Set<Int> = emptySet())
@@ -57,13 +57,6 @@ data class WorkTask(
 )
 
 object RecordCodec {
-    fun menu(value: MenuDay): String = JSONObject()
-        .put("day", value.day.toString()).put("dishes", value.dishes).toString()
-
-    fun menu(record: LocalRecord): MenuDay = JSONObject(record.payload).let {
-        MenuDay(record.id, LocalDate.parse(it.getString("day")), it.getString("dishes"))
-    }
-
     fun menuWeek(value: MenuWeek): String = JSONObject().put("start", value.start.toString())
         .put("attachmentId", value.attachmentId).toString()
 
