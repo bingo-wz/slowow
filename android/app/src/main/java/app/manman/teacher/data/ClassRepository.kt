@@ -5,6 +5,7 @@ import app.manman.teacher.domain.Leave
 import app.manman.teacher.domain.LunchStudent
 import app.manman.teacher.domain.MealOverride
 import app.manman.teacher.domain.Student
+import app.manman.teacher.domain.TaskOrdering
 import kotlinx.coroutines.flow.Flow
 import org.json.JSONObject
 import java.time.Instant
@@ -58,6 +59,10 @@ class ClassRepository(private val database: ManmanDatabase) {
         dao.saveLocal(accountId, RecordKind.MARKING, record.id, RecordCodec.marking(record))
     }
 
+    suspend fun deleteMarking(accountId: String, record: MarkingRecord) {
+        dao.saveLocal(accountId, RecordKind.MARKING, record.id, RecordCodec.marking(record), deleted = true)
+    }
+
     suspend fun saveMenuWeek(accountId: String, start: LocalDate, image: AttachmentMeta) {
         require(start.dayOfWeek.value == 1) { "一周应从周一开始。" }
         val id = stableId("menu-week:$start")
@@ -96,6 +101,37 @@ class ClassRepository(private val database: ManmanDatabase) {
     suspend fun saveTask(accountId: String, task: WorkTask) {
         require(task.title.isNotBlank() && task.title.length <= 100) { "请填写不超过 100 个字的待办。" }
         dao.saveLocal(accountId, RecordKind.TASK, task.id, RecordCodec.task(task.copy(title = task.title.trim())))
+    }
+
+    suspend fun deleteTask(accountId: String, task: WorkTask) {
+        dao.saveLocal(accountId, RecordKind.TASK, task.id, RecordCodec.task(task), deleted = true)
+    }
+
+    suspend fun setTaskDone(accountId: String, id: String, done: Boolean) {
+        database.withTransaction {
+            val record = requireNotNull(dao.find(accountId, RecordKind.TASK, id)) { "待办不存在。" }
+            require(!record.deleted && record.conflictVersion == null) { "待办已删除或存在同步冲突。" }
+            val task = RecordCodec.task(record)
+            if (task.done != done) dao.saveLocal(accountId, RecordKind.TASK, id, RecordCodec.task(task.copy(done = done)))
+        }
+    }
+
+    suspend fun reorderTasks(accountId: String, day: LocalDate?, orderedIds: List<String>) {
+        require(orderedIds.isNotEmpty() && orderedIds.distinct().size == orderedIds.size) { "待办顺序无效。" }
+        database.withTransaction {
+            val records = dao.snapshot(accountId).filter { it.kind == RecordKind.TASK && !it.deleted }
+            val current = records.map { it to RecordCodec.task(it) }.filter { TaskOrdering.date(it.second) == day }
+            require(current.none { it.first.conflictVersion != null }) { "请先处理待办的同步冲突。" }
+            val byId = current.associateBy { it.second.id }
+            require(orderedIds.all(byId::containsKey)) { "待办已发生变化，请重新排序。" }
+            val remaining = TaskOrdering.sorted(current.map { it.second }).map { it.id }.filterNot(orderedIds::contains)
+            (orderedIds + remaining).forEachIndexed { index, id ->
+                val task = byId.getValue(id).second
+                if (task.sortOrder != index.toLong()) {
+                    dao.saveLocal(accountId, RecordKind.TASK, id, RecordCodec.task(task.copy(sortOrder = index.toLong())))
+                }
+            }
+        }
     }
 
     suspend fun saveCutoff(accountId: String, cutoff: LocalTime) {

@@ -2,10 +2,14 @@ package app.manman.teacher
 
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.room.Room
 import app.manman.teacher.auth.AuthSession
 import app.manman.teacher.auth.SessionProvider
 import app.manman.teacher.data.RecordCodec
 import app.manman.teacher.data.RecordKind
+import app.manman.teacher.data.ClassRepository
+import app.manman.teacher.data.ManmanDatabase
+import app.manman.teacher.data.WorkTask
 import app.manman.teacher.domain.Student
 import app.manman.teacher.sync.SyncEngine
 import app.manman.teacher.sync.SyncResponse
@@ -23,6 +27,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.IOException
+import java.time.Instant
+import java.time.LocalDate
 import java.util.UUID
 
 @RunWith(AndroidJUnit4::class)
@@ -115,5 +121,25 @@ class SyncEngineInstrumentedTest {
         assertEquals(weekly.schoolLunchDays, RecordCodec.student(saved).schoolLunchDays)
         val remoteDays = requireNotNull(server.record).getJSONObject("payload").getJSONArray("schoolLunchDays")
         assertEquals(listOf(1, 2, 3, 6, 7), (0 until remoteDays.length()).map(remoteDays::getInt))
+    }
+
+    @Test fun taskOrderAndCompletionSurviveAnotherDeviceSync() = runBlocking {
+        val app = ApplicationProvider.getApplicationContext<ManmanApplication>()
+        val owner = "task-sync-test-${UUID.randomUUID()}"
+        val server = FakeServer().apply { loseFirstResponse = false }
+        val task = WorkTask("one", "虚构待办", null, null, null, true, Instant.parse("2026-11-08T00:00:00Z"),
+            LocalDate.of(2026, 11, 8), 3)
+        ClassRepository(app.database).saveTask(owner, task)
+        assertEquals(SyncResult.SUCCESS, SyncEngine(server, app.database.records(), FakeSession(owner)).sync(owner))
+        assertEquals(3L, server.record!!.getJSONObject("payload").getLong("sortOrder"))
+        val other = Room.inMemoryDatabaseBuilder(app, ManmanDatabase::class.java).build()
+        try {
+            assertEquals(SyncResult.SUCCESS, SyncEngine(server, other.records(), FakeSession(owner)).sync(owner))
+            val downloaded = other.records().find(owner, RecordKind.TASK, task.id)!!
+            assertEquals(task, RecordCodec.task(downloaded))
+            assertFalse(downloaded.dirty)
+        } finally {
+            other.close()
+        }
     }
 }

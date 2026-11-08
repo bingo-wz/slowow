@@ -66,11 +66,11 @@ class WeeklyMenuInstrumentedTest {
                     } } }
                 }
                 assertTrue(device.wait(Until.hasObject(By.text("本周还没有菜单")), 10_000))
-                assertTrue(device.hasObject(By.text("添加图片")))
+                assertTrue(device.hasObject(By.desc("添加图片")))
                 assertTrue(!device.hasObject(By.textContains("识别")))
                 scenario.onActivity { screenState.value = screenState.value.copy(menuWeeks = listOf(savedWeek), attachments = listOf(image)) }
                 assertTrue(device.wait(Until.hasObject(By.desc("原图")), 10_000))
-                assertTrue(device.hasObject(By.text("更换图片")))
+                assertTrue(device.hasObject(By.desc("更换菜单图片")))
                 assertTrue(!device.hasObject(By.text("今天吃什么")))
                 assertTrue(device.takeScreenshot(File(app.cacheDir, "weekly-menu-preview.png")))
             }

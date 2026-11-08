@@ -32,6 +32,12 @@ class UpgradePreservationInstrumentedTest {
         val slot = records.single { it.kind == RecordKind.TIME_SLOT && it.id == "legacy-slot" && !it.deleted }
         assertEquals(setOf(1), RecordCodec.timeSlot(slot).weekdays)
         assertEquals("虚构语文", RecordCodec.lesson(records.single { it.kind == RecordKind.LESSON && it.id == "legacy-lesson" }).subject)
+        val task = RecordCodec.task(records.single { it.kind == RecordKind.TASK && it.id == "legacy-task" })
+        assertEquals("虚构提醒", task.title)
+        assertNull(task.sortOrder)
+        val marking = RecordCodec.marking(records.single { it.kind == RecordKind.MARKING && it.id == "legacy-marking" })
+        assertEquals("虚构学生", marking.students.single().name)
+        assertTrue(!marking.students.single().first)
         val week = RecordCodec.menuWeek(records.single { it.kind == RecordKind.MENU_WEEK && !it.deleted })
         val image = RecordCodec.attachment(records.single { it.kind == RecordKind.ATTACHMENT && it.id == week.attachmentId })
         val preview = app.attachments.preview(account, image) { throw AssertionError("本机图片不应联网") }

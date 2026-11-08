@@ -38,10 +38,10 @@ import app.manman.teacher.domain.Student
 import java.util.Locale
 
 @Composable
-fun ClassScreen(state: MainUiState, onImport: () -> Unit, onStudent: (String) -> Unit, onMarking: () -> Unit) {
+fun ClassScreen(state: MainUiState, back: () -> Unit, onImport: () -> Unit, onStudent: (String) -> Unit, onMarking: () -> Unit) {
     val activeStudents = state.students.filter(Student::active)
     Column(Modifier.fillMaxSize()) {
-        PageHeader("班级", "${activeStudents.size} 位学生", action = { TextButton(onClick = onImport) { Text("添加") } })
+        PageHeader("班级", "${activeStudents.size} 位学生", back = back, action = { ActionIcon("plus", "添加学生", onImport) })
         if (activeStudents.isEmpty()) {
             Column(Modifier.padding(horizontal = 16.dp)) {
                 EmptyHint("还没有学生名单", "从 Excel 复制姓名，粘贴后就可以一起添加。", "添加学生", onImport)

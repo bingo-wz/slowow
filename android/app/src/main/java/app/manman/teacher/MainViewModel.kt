@@ -163,6 +163,12 @@ class MainViewModel(private val application: ManmanApplication) : ViewModel() {
         mutableState.update { it.copy(message = "班级标记已保存。") }
     }
 
+    fun deleteMarking(record: MarkingRecord, onDone: () -> Unit) = perform {
+        repository.deleteMarking(requireAccount(), record)
+        onDone()
+        mutableState.update { it.copy(message = "班级标记已删除。") }
+    }
+
     fun bindRecognition(code: String, onDone: () -> Unit) = perform {
         application.recognition.bind(requireAccount(), code)
         onDone()
@@ -252,6 +258,40 @@ class MainViewModel(private val application: ManmanApplication) : ViewModel() {
         repository.saveTask(requireAccount(), task)
         onDone()
         mutableState.update { it.copy(message = if (task.done) "待办已完成。" else "待办已保存。") }
+    }
+
+    fun reorderTasks(day: LocalDate?, ids: List<String>) = viewModelScope.launch {
+        try {
+            val account = requireAccount()
+            repository.reorderTasks(account, day, ids)
+            SyncWorker.enqueue(application, account)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: IllegalArgumentException) {
+            mutableState.update { it.copy(error = error.message ?: "待办顺序未保存。") }
+        } catch (_: Exception) {
+            mutableState.update { it.copy(error = "待办顺序未保存，请稍后重试。") }
+        }
+    }
+
+    fun setTaskDone(id: String, done: Boolean) = viewModelScope.launch {
+        try {
+            val account = requireAccount()
+            repository.setTaskDone(account, id, done)
+            SyncWorker.enqueue(application, account)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: IllegalArgumentException) {
+            mutableState.update { it.copy(error = error.message ?: "待办状态未保存。") }
+        } catch (_: Exception) {
+            mutableState.update { it.copy(error = "待办状态未保存，请稍后重试。") }
+        }
+    }
+
+    fun deleteTask(task: WorkTask, onDone: () -> Unit) = perform {
+        repository.deleteTask(requireAccount(), task)
+        onDone()
+        mutableState.update { it.copy(message = "待办已删除。") }
     }
 
     fun saveCutoff(value: LocalTime, onDone: () -> Unit) = perform {

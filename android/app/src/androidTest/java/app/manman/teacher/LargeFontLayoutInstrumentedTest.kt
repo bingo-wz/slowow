@@ -30,10 +30,10 @@ class LargeFontLayoutInstrumentedTest {
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         val scenario = ActivityScenario.launch(MainActivity::class.java)
         try {
-            val homeReady = device.wait(Until.hasObject(By.text("班级")), 20_000)
+            val homeReady = device.wait(Until.hasObject(By.desc("班级")), 20_000)
             if (!homeReady) device.dumpWindowHierarchy(File("/sdcard/Download/manman-layout-test.xml"))
             assertTrue(homeReady)
-            device.findObject(By.text("班级")).click()
+            device.findObject(By.desc("班级")).click()
             assertTrue(device.wait(Until.hasObject(By.text("班级标记")), 10_000))
             device.findObject(By.text("班级标记")).click()
             assertTrue(device.wait(Until.hasObject(By.text("事项名称")), 10_000))
@@ -53,7 +53,8 @@ class LargeFontLayoutInstrumentedTest {
             assertTrue(save != null)
             save.click()
             assertTrue(device.wait(Until.hasObject(By.text("学生名单")), 10_000))
-            val record = app.database.records().pending(account, 100).first { it.kind == RecordKind.MARKING }
+            val record = app.database.records().pending(account, 100)
+                .first { it.kind == RecordKind.MARKING && RecordCodec.marking(it).title == "测试事项" }
             assertFalse("应保存被点击学生的状态", RecordCodec.marking(record).students.first { it.name == "学生01" }.first)
         } finally {
             scenario.close()

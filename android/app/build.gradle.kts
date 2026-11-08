@@ -31,8 +31,8 @@ android {
         applicationId = "app.manman.teacher"
         minSdk = 26
         targetSdk = 36
-        versionCode = 5
-        versionName = "0.4.0"
+        versionCode = 6
+        versionName = "0.5.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "SYNC_BASE_URL", "\"$syncEndpoint\"")
         buildConfigField("String", "AUTH_BASE_URL", "\"$authEndpoint\"")
@@ -68,6 +68,7 @@ dependencies {
     implementation("androidx.room:room-ktx:2.8.5")
     implementation("androidx.work:work-runtime-ktx:2.10.5")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    implementation("sh.calvin.reorderable:reorderable:3.1.0")
     ksp("androidx.room:room-compiler:2.8.5")
 
     debugImplementation("androidx.compose.ui:ui-tooling")

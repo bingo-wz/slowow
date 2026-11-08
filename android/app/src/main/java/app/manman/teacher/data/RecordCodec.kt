@@ -54,6 +54,7 @@ data class WorkTask(
     val done: Boolean,
     val createdAt: Instant,
     val dueDate: LocalDate? = null,
+    val sortOrder: Long? = null,
 )
 
 object RecordCodec {
@@ -101,13 +102,15 @@ object RecordCodec {
     fun task(value: WorkTask): String = JSONObject().put("title", value.title)
         .put("noticeId", value.noticeId ?: JSONObject.NULL).put("dueAt", value.dueAt?.toString() ?: JSONObject.NULL)
         .put("remindAt", value.remindAt?.toString() ?: JSONObject.NULL).put("done", value.done)
-        .put("createdAt", value.createdAt.toString()).put("dueDate", value.dueDate?.toString() ?: JSONObject.NULL).toString()
+        .put("createdAt", value.createdAt.toString()).put("dueDate", value.dueDate?.toString() ?: JSONObject.NULL)
+        .put("sortOrder", value.sortOrder ?: JSONObject.NULL).toString()
 
     fun task(record: LocalRecord): WorkTask = JSONObject(record.payload).let {
         fun optional(key: String) = if (it.isNull(key)) null else it.getString(key)
         WorkTask(record.id, it.getString("title"), optional("noticeId"), optional("dueAt")?.let(Instant::parse),
             optional("remindAt")?.let(Instant::parse), it.getBoolean("done"), Instant.parse(it.getString("createdAt")),
-            optional("dueDate")?.let(LocalDate::parse))
+            optional("dueDate")?.let(LocalDate::parse),
+            if (it.isNull("sortOrder")) null else it.getLong("sortOrder"))
     }
 
     fun student(value: Student): String = JSONObject()

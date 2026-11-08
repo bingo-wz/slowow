@@ -47,7 +47,7 @@ fun ScheduleScreen(state: MainUiState, viewModel: MainViewModel, back: () -> Uni
     var lessonSlot by remember { mutableStateOf<TimeSlot?>(null) }
     Column(Modifier.fillMaxSize()) {
         PageHeader("课程与作息", "先设置节次，再安排每周课程", back = back,
-            action = { TextButton(onClick = { newSlot = true }) { Text("添加节次") } })
+            action = { ActionIcon("plus", "添加节次", { newSlot = true }) })
         Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 weekNames.forEachIndexed { index, label ->
@@ -69,10 +69,10 @@ fun ScheduleScreen(state: MainUiState, viewModel: MainViewModel, back: () -> Uni
                                 Text("${slot.start.format(DateTimeFormatter.ofPattern("HH:mm"))} - ${slot.end.format(DateTimeFormatter.ofPattern("HH:mm"))}",
                                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            TextButton(onClick = { editSlot = slot }) { Text("调整时间") }
+                            ActionIcon("edit", "调整${slot.title}时间", { editSlot = slot })
                         }
                         Text(lesson?.subject ?: "尚未安排课程", style = MaterialTheme.typography.bodyLarge)
-                        TextButton(onClick = { lessonSlot = slot }) { Text(if (lesson == null) "添加课程" else "修改课程") }
+                        ActionIcon(if (lesson == null) "plus" else "edit", if (lesson == null) "添加${slot.title}课程" else "修改${slot.title}课程", { lessonSlot = slot })
                     }
                 }
                 Text("调整时间会影响使用同一节次的课程。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

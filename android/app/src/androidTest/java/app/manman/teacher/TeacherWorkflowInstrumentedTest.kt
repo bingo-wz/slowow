@@ -63,47 +63,47 @@ class TeacherWorkflowInstrumentedTest {
         device.executeShellCommand("settings put system font_scale 1.0")
         val scenario = ActivityScenario.launch(MainActivity::class.java)
         try {
-            val homeVisible = device.wait(Until.hasObject(By.text("午餐核验")), 20_000)
+            val homeVisible = device.wait(Until.hasObject(By.desc("午餐核验")), 20_000)
             if (!homeVisible) {
                 device.takeScreenshot(File(application.cacheDir, "manman-diagnostic.png"))
                 device.dumpWindowHierarchy(File(application.cacheDir, "manman-diagnostic.xml"))
             }
             assertTrue(homeVisible)
-            assertTrue(device.wait(Until.hasObject(By.text("47 人")), 10_000))
-            assertTrue(device.wait(Until.hasObject(By.text("今天的课程")), 10_000))
+            assertTrue(device.wait(Until.hasObject(By.text("今日待办")), 10_000))
             assertTrue(device.takeScreenshot(File(application.cacheDir, "manman-home.png")))
             device.executeShellCommand("screencap -p /sdcard/Download/manman-home-current.png")
-            tapText(device, "午餐核验")
+            tapDescription(device, "午餐核验")
+            assertTrue(device.wait(Until.hasObject(By.text("47 人")), 10_000))
             assertTrue(device.wait(Until.hasObject(By.text("不在校用餐 · 5 人")), 10_000))
             assertNotNull(device.findObject(By.text("学生04")))
             assertTrue(device.takeScreenshot(File(application.cacheDir, "manman-lunch.png")))
             device.pressBack()
-            assertTrue(device.wait(Until.hasObject(By.text("班级")), 10_000))
-            tapText(device, "班级")
+            assertTrue(device.wait(Until.hasObject(By.desc("班级")), 10_000))
+            tapDescription(device, "班级")
             assertTrue(device.wait(Until.hasObject(By.text("班级标记")), 10_000))
             tapText(device, "班级标记")
             assertTrue(device.wait(Until.hasObject(By.text("保存记录")), 10_000))
             assertTrue(device.takeScreenshot(File(application.cacheDir, "manman-marking.png")))
             device.executeShellCommand("screencap -p /sdcard/Download/manman-marking-current.png")
             device.pressBack()
-            tapText(device, "今天")
-            assertTrue(device.wait(Until.hasObject(By.text("课程与作息")), 10_000))
-            tapText(device, "课程与作息")
+            device.pressBack()
+            assertTrue(device.wait(Until.hasObject(By.desc("课程与作息")), 10_000))
+            tapDescription(device, "课程与作息")
             assertTrue(device.wait(Until.hasObject(By.text("第一节")), 10_000))
             assertTrue(device.wait(Until.hasObject(By.text("语文")), 10_000))
             assertTrue(!device.hasObject(By.textContains("导入课程")))
-            tapText(device, "添加节次")
+            tapDescription(device, "添加节次")
             assertTrue(device.wait(Until.hasObject(By.clazz("android.widget.EditText")), 10_000))
             device.findObject(By.clazz("android.widget.EditText")).text = "活动"
             tapText(device, "保存")
             assertTrue(device.wait(Until.hasObject(By.text("活动")), 10_000))
             repeat(3) {
-                if (!device.hasObject(By.text("添加课程"))) {
+                if (!device.hasObject(By.desc("添加活动课程"))) {
                     device.swipe(device.displayWidth / 2, device.displayHeight * 3 / 4,
                         device.displayWidth / 2, device.displayHeight / 3, 20)
                 }
             }
-            tapText(device, "添加课程")
+            tapDescription(device, "添加活动课程")
             assertTrue(device.wait(Until.hasObject(By.clazz("android.widget.EditText")), 10_000))
             device.findObject(By.clazz("android.widget.EditText")).text = "班会"
             tapText(device, "保存")
@@ -188,5 +188,11 @@ class TeacherWorkflowInstrumentedTest {
         device.dumpWindowHierarchy(File(cache, "manman-tap-failed.xml"))
         device.takeScreenshot(File(cache, "manman-tap-failed.png"))
         throw AssertionError("无法点击界面文字：$text")
+    }
+
+    private fun tapDescription(device: UiDevice, label: String) {
+        val element = device.wait(Until.findObject(By.desc(label)), 10_000)
+            ?: throw AssertionError("无法找到图标：$label")
+        element.click()
     }
 }

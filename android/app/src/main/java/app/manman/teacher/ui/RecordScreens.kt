@@ -62,6 +62,8 @@ fun RecordsScreen(state: MainUiState, viewModel: MainViewModel, onLeave: () -> U
                 items(state.markings, key = { it.id }) { marking ->
                     Block(onClick = { onMarking(marking.id) }) {
                         Text(marking.title, style = MaterialTheme.typography.bodyLarge)
+                        Text(marking.createdAt.atZone(LunchRules.defaultZone).format(DateTimeFormatter.ofPattern("yyyy年M月d日 HH:mm")),
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text("${marking.firstLabel} ${marking.students.count { it.first }} 人 · ${marking.secondLabel} ${marking.students.count { !it.first }} 人",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }

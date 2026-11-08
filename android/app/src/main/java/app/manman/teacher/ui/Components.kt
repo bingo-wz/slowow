@@ -20,6 +20,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.PlainTooltip
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipAnchorPosition
+import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -30,6 +37,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.contentDescription
@@ -80,7 +88,8 @@ fun SectionHeading(title: String, action: String? = null, onAction: (() -> Unit)
     FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, itemVerticalAlignment = Alignment.CenterVertically) {
         Text(title, style = MaterialTheme.typography.titleMedium)
         if (action != null && onAction != null) {
-            TextButton(onClick = onAction) { Text(action, style = MaterialTheme.typography.labelMedium) }
+            if (action == "添加" || action == "新建" || action == "记录请假") ActionIcon("plus", action, onAction)
+            else TextButton(onClick = onAction) { Text(action, style = MaterialTheme.typography.labelMedium) }
         }
     }
 }
@@ -101,7 +110,8 @@ fun EmptyHint(title: String, detail: String, action: String, onAction: () -> Uni
     Block {
         Text(title, style = MaterialTheme.typography.bodyLarge)
         Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        TextButton(onClick = onAction) { Text(action) }
+        if (action.startsWith("添加") || action.startsWith("新建")) ActionIcon("plus", action, onAction)
+        else TextButton(onClick = onAction) { Text(action) }
     }
 }
 
@@ -109,6 +119,17 @@ fun EmptyHint(title: String, detail: String, action: String, onAction: () -> Uni
 fun SmallBadge(text: String) {
     Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = RoundedCornerShape(8.dp)) {
         Text(text, Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall)
+    }
+}
+
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+fun ActionIcon(icon: String, label: String, onClick: () -> Unit, enabled: Boolean = true, modifier: Modifier = Modifier) {
+    TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+        tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) {
+        IconButton(onClick = onClick, enabled = enabled, modifier = modifier.semantics { contentDescription = label }) {
+            LineIcon(icon, Modifier.alpha(if (enabled) 1f else 0.38f))
+        }
     }
 }
 
@@ -140,6 +161,25 @@ fun LineIcon(name: String, modifier: Modifier = Modifier) {
             "back" -> { line(19f, 12f, 5f, 12f); line(5f, 12f, 11f, 6f); line(5f, 12f, 11f, 18f) }
             "plus" -> { line(12f, 5f, 12f, 19f); line(5f, 12f, 19f, 12f) }
             "check" -> { line(5f, 12f, 10f, 17f); line(10f, 17f, 19f, 7f) }
+            "edit" -> { line(5f, 19f, 8f, 18f); line(8f, 18f, 19f, 7f); line(19f, 7f, 16f, 4f); line(16f, 4f, 5f, 15f); line(5f, 15f, 5f, 19f) }
+            "delete" -> { line(5f, 7f, 19f, 7f); line(9f, 4f, 15f, 4f); line(7f, 7f, 8f, 20f); line(8f, 20f, 16f, 20f); line(16f, 20f, 17f, 7f); line(10f, 10f, 10f, 17f); line(14f, 10f, 14f, 17f) }
+            "copy" -> { line(9f, 8f, 19f, 8f); line(19f, 8f, 19f, 20f); line(19f, 20f, 9f, 20f); line(9f, 20f, 9f, 8f); line(5f, 16f, 5f, 4f); line(5f, 4f, 15f, 4f) }
+            "drag" -> { line(6f, 9f, 18f, 9f); line(6f, 15f, 18f, 15f) }
+            "down" -> { line(6f, 9f, 12f, 15f); line(12f, 15f, 18f, 9f) }
+            "up" -> { line(6f, 15f, 12f, 9f); line(12f, 9f, 18f, 15f) }
+            "list" -> { line(9f, 6f, 20f, 6f); line(9f, 12f, 20f, 12f); line(9f, 18f, 20f, 18f); line(4f, 6f, 5f, 6f); line(4f, 12f, 5f, 12f); line(4f, 18f, 5f, 18f) }
+            "lunch" -> { line(5f, 3f, 5f, 10f); line(8f, 3f, 8f, 10f); line(5f, 10f, 8f, 10f); line(6.5f, 10f, 6.5f, 21f); line(17f, 3f, 17f, 21f); line(17f, 3f, 13f, 11f); line(13f, 11f, 17f, 11f) }
+            "leave" -> { drawRoundRect(color, Offset(4f * unit, 5f * unit), Size(16f * unit, 15f * unit), androidx.compose.ui.geometry.CornerRadius(2f * unit), style = Stroke(stroke)); line(4f, 10f, 20f, 10f); line(8f, 3f, 8f, 7f); line(16f, 3f, 16f, 7f); line(9f, 15f, 15f, 15f) }
+            "mark" -> { drawCircle(color, 3f * unit, Offset(9f * unit, 7f * unit), style = Stroke(stroke)); drawArc(color, 190f, 160f, false, Offset(3f * unit, 11f * unit), Size(12f * unit, 10f * unit), style = Stroke(stroke, cap = StrokeCap.Round)); line(15f, 15f, 17f, 17f); line(17f, 17f, 21f, 12f) }
+            "menu" -> { drawRoundRect(color, Offset(5f * unit, 3f * unit), Size(14f * unit, 18f * unit), androidx.compose.ui.geometry.CornerRadius(2f * unit), style = Stroke(stroke)); line(8f, 8f, 16f, 8f); line(8f, 12f, 16f, 12f); line(8f, 16f, 13f, 16f) }
+            "schedule" -> { drawCircle(color, 8f * unit, Offset(12f * unit, 12f * unit), style = Stroke(stroke)); line(12f, 7f, 12f, 12f); line(12f, 12f, 16f, 14f) }
+            "notice" -> { drawRoundRect(color, Offset(4f * unit, 4f * unit), Size(16f * unit, 15f * unit), androidx.compose.ui.geometry.CornerRadius(2f * unit), style = Stroke(stroke)); line(8f, 9f, 16f, 9f); line(8f, 13f, 14f, 13f); line(8f, 19f, 8f, 21f); line(8f, 21f, 12f, 19f) }
+            "settings" -> {
+                drawCircle(color, 3f * unit, Offset(12f * unit, 12f * unit), style = Stroke(stroke))
+                drawCircle(color, 7f * unit, Offset(12f * unit, 12f * unit), style = Stroke(stroke))
+                line(12f, 2f, 12f, 5f); line(12f, 19f, 12f, 22f); line(2f, 12f, 5f, 12f); line(19f, 12f, 22f, 12f)
+                line(5f, 5f, 7f, 7f); line(17f, 17f, 19f, 19f); line(19f, 5f, 17f, 7f); line(7f, 17f, 5f, 19f)
+            }
             else -> { line(6f, 12f, 18f, 12f); line(13f, 7f, 18f, 12f); line(18f, 12f, 13f, 17f) }
         }
     }

@@ -38,8 +38,8 @@ class WeeklyLunchWorkflowInstrumentedTest {
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         val scenario = ActivityScenario.launch(MainActivity::class.java)
         try {
-            assertTrue(device.wait(Until.hasObject(By.text("班级")), 20_000))
-            device.findObject(By.text("班级")).click()
+            assertTrue(device.wait(Until.hasObject(By.desc("班级")), 20_000))
+            device.findObject(By.desc("班级")).click()
             assertTrue(device.wait(Until.hasObject(By.text("叶小禾")), 10_000))
             device.findObject(By.text("叶小禾")).click()
             scrollTo(device, "周四").click()
@@ -53,9 +53,9 @@ class WeeklyLunchWorkflowInstrumentedTest {
             assertTrue(LunchRules.calculate(LocalDate.of(2026, 11, 13), listOf(student), emptyList()).excluded.isNotEmpty())
             assertTrue(LunchRules.calculate(LocalDate.of(2026, 11, 11), listOf(student), emptyList()).eating.isNotEmpty())
 
-            device.findObject(By.text("今天")).click()
-            assertTrue(device.wait(Until.hasObject(By.text("记录请假")), 10_000))
-            device.findObject(By.text("记录请假")).click()
+            device.pressBack()
+            assertTrue(device.wait(Until.hasObject(By.desc("记录请假")), 10_000))
+            device.findObject(By.desc("记录请假")).click()
             assertTrue(device.wait(Until.hasObject(By.textContains("选择学生")), 10_000))
             device.findObject(By.textContains("选择学生")).click()
             assertTrue(device.wait(Until.hasObject(By.desc("跳到 Y")), 10_000))

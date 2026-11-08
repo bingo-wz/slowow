@@ -46,33 +46,30 @@ import java.util.UUID
 private val momentFormat = DateTimeFormatter.ofPattern("M月d日 HH:mm")
 private fun formatMoment(value: Instant?): String = value?.atZone(LunchRules.defaultZone)?.format(momentFormat) ?: "未设置"
 private fun taskDue(task: WorkTask): String = task.dueAt?.let(::formatMoment) ?: task.dueDate?.toString()?.plus("（仅日期）") ?: "未设置时间"
-private fun taskOrder(task: WorkTask): Instant = task.dueAt ?: task.dueDate?.atStartOfDay(LunchRules.defaultZone)?.toInstant() ?: Instant.MAX
-
 @Composable
-fun WorkScreen(state: MainUiState, back: () -> Unit, onNotice: (String) -> Unit, onTask: (String) -> Unit,
-    onAddNotice: () -> Unit, onAddTask: () -> Unit) {
+fun WorkScreen(state: MainUiState, viewModel: MainViewModel, showNotices: Boolean, setShowNotices: (Boolean) -> Unit,
+    back: () -> Unit, onNotice: (String) -> Unit, onTask: (String) -> Unit, onAddNotice: () -> Unit, onAddTask: () -> Unit) {
     Column(Modifier.fillMaxSize()) {
-        PageHeader("通知与待办", "记录原文，安排接下来的事", back = back)
-        LazyColumn(Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            item { SectionHeading("待办", "新建", onAddTask) }
-            if (state.tasks.isEmpty()) item { Block { Text("还没有待办。", color = MaterialTheme.colorScheme.onSurfaceVariant) } }
-            items(state.tasks.sortedWith(compareBy<WorkTask> { it.done }.thenBy(::taskOrder)), key = { "task-${it.id}" }) { task ->
-                Block(onClick = { onTask(task.id) }) {
-                    Text(task.title, style = MaterialTheme.typography.bodyLarge)
-                    Text(if (task.done) "已完成" else "待处理 · ${taskDue(task)}",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+        PageHeader(if (showNotices) "学校通知" else "全部待办", back = back, action = {
+            Row {
+                ActionIcon(if (showNotices) "list" else "notice", if (showNotices) "全部待办" else "学校通知", { setShowNotices(!showNotices) })
+                ActionIcon("plus", if (showNotices) "添加通知" else "新建待办", if (showNotices) onAddNotice else onAddTask)
             }
-            item { Spacer(Modifier.height(8.dp)); SectionHeading("学校通知", "添加", onAddNotice) }
-            if (state.notices.isEmpty()) item { Block { Text("还没有保存通知。", color = MaterialTheme.colorScheme.onSurfaceVariant) } }
-            items(state.notices, key = { "notice-${it.id}" }) { notice ->
-                Block(onClick = { onNotice(notice.id) }) {
-                    Text(notice.title, style = MaterialTheme.typography.bodyLarge)
-                    Text(notice.content.ifBlank { "${notice.attachmentIds.size} 张图片" }, maxLines = 2, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        })
+        if (showNotices) {
+            LazyColumn(Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (state.notices.isEmpty()) item { Block { Text("还没有保存通知。", color = MaterialTheme.colorScheme.onSurfaceVariant) } }
+                items(state.notices, key = { "notice-${it.id}" }) { notice ->
+                    Block(onClick = { onNotice(notice.id) }) {
+                        Text(notice.title, style = MaterialTheme.typography.bodyLarge)
+                        Text(notice.content.ifBlank { "${notice.attachmentIds.size} 张图片" }, maxLines = 2, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
+                item { Spacer(Modifier.height(16.dp)) }
             }
-            item { Spacer(Modifier.height(16.dp)) }
+        } else {
+            TaskAgenda(state, viewModel, rememberToday(), onlyToday = false, onTask = onTask, modifier = Modifier.weight(1f))
         }
     }
 }
@@ -146,7 +143,7 @@ fun NoticeDetailScreen(notice: Notice, state: MainUiState, back: () -> Unit, onE
     onTask: (String) -> Unit, onImage: (String) -> Unit, onRecognize: () -> Unit) {
     var confirmRecognition by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize()) {
-        PageHeader(notice.title, "学校通知", back = back, action = { TextButton(onClick = onEdit) { Text("编辑") } })
+        PageHeader(notice.title, "学校通知", back = back, action = { ActionIcon("edit", "编辑通知", onEdit) })
         Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             SectionHeading("通知原文")
             if (notice.content.isNotBlank()) Block { Text(notice.content) }
@@ -181,8 +178,12 @@ fun NoticeDetailScreen(notice: Notice, state: MainUiState, back: () -> Unit, onE
 @Composable
 fun TaskDetailScreen(task: WorkTask, state: MainUiState, viewModel: MainViewModel, back: () -> Unit, onEdit: () -> Unit, onNotice: (String) -> Unit) {
     val notice = state.notices.firstOrNull { it.id == task.noticeId }
+    var confirmDelete by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize()) {
-        PageHeader("待办详情", back = back, action = { TextButton(onClick = onEdit) { Text("编辑") } })
+        PageHeader("待办详情", back = back, action = { Row {
+            ActionIcon("edit", "编辑待办", onEdit)
+            ActionIcon("delete", "删除待办", { confirmDelete = true }, enabled = !state.busy)
+        } })
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Block {
                 Text(task.title, style = MaterialTheme.typography.titleMedium)
@@ -200,23 +201,29 @@ fun TaskDetailScreen(task: WorkTask, state: MainUiState, viewModel: MainViewMode
             enabled = !state.busy, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp))
         Spacer(Modifier.height(16.dp))
     }
+    if (confirmDelete) androidx.compose.material3.AlertDialog(
+        onDismissRequest = { confirmDelete = false }, title = { Text("删除这条待办？") },
+        text = { Text("删除后，这条待办和它的提醒会从已同步的设备中移除。") },
+        confirmButton = { TextButton(onClick = { confirmDelete = false; viewModel.deleteTask(task, back) }) { Text("删除") } },
+        dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("取消") } },
+    )
 }
 
 @Composable
 fun TaskEditorScreen(state: MainUiState, viewModel: MainViewModel, existing: WorkTask?, noticeId: String?, suggestion: NoticeSuggestionItem?,
-    back: () -> Unit, onSaved: () -> Unit = back) {
+    back: () -> Unit, onSaved: () -> Unit = back, defaultDate: LocalDate? = null) {
     val context = LocalContext.current
     val initialDue = existing?.dueAt ?: if (suggestion?.date != null && suggestion.time != null) {
         suggestion.date.atTime(suggestion.time).atZone(LunchRules.defaultZone).toInstant()
     } else null
-    val initialDate = existing?.dueDate ?: suggestion?.date
+    val initialDate = existing?.dueDate ?: suggestion?.date ?: if (existing == null) defaultDate else null
     var title by rememberSaveable(existing?.id, suggestion?.title) { mutableStateOf(existing?.title ?: suggestion?.title.orEmpty()) }
     var due by rememberSaveable(existing?.id, suggestion?.title) { mutableStateOf(initialDue?.toString().orEmpty()) }
     var dueDate by rememberSaveable(existing?.id, suggestion?.title) { mutableStateOf(initialDate?.toString().orEmpty()) }
     var reminder by rememberSaveable(existing?.id, suggestion?.title) { mutableStateOf(existing?.remindAt?.toString().orEmpty()) }
     var confirmBack by remember { mutableStateOf(false) }
     val dirty = suggestion != null || title != existing?.title.orEmpty() || due != existing?.dueAt?.toString().orEmpty() ||
-        dueDate != existing?.dueDate?.toString().orEmpty() || reminder != existing?.remindAt?.toString().orEmpty()
+        dueDate != initialDate?.toString().orEmpty() || reminder != existing?.remindAt?.toString().orEmpty()
     fun leave() { if (dirty) confirmBack = true else back() }
     androidx.activity.compose.BackHandler { leave() }
     val notice = state.notices.firstOrNull { it.id == (existing?.noticeId ?: noticeId) }
@@ -260,9 +267,11 @@ fun TaskEditorScreen(state: MainUiState, viewModel: MainViewModel, existing: Wor
             }
         }
         MainButton("保存待办", {
-            viewModel.saveTask(WorkTask(existing?.id ?: UUID.randomUUID().toString(), title, existing?.noticeId ?: noticeId,
+            val updated = WorkTask(existing?.id ?: UUID.randomUUID().toString(), title, existing?.noticeId ?: noticeId,
                 due.takeIf(String::isNotBlank)?.let(Instant::parse), reminder.takeIf(String::isNotBlank)?.let(Instant::parse),
-                existing?.done ?: false, existing?.createdAt ?: Instant.now(), dueDate.takeIf(String::isNotBlank)?.let(LocalDate::parse)), onSaved)
+                existing?.done ?: false, existing?.createdAt ?: Instant.now(), dueDate.takeIf(String::isNotBlank)?.let(LocalDate::parse))
+            val order = existing?.sortOrder?.takeIf { app.manman.teacher.domain.TaskOrdering.date(updated) == app.manman.teacher.domain.TaskOrdering.date(existing) }
+            viewModel.saveTask(updated.copy(sortOrder = order), onSaved)
         }, enabled = title.isNotBlank() && !state.busy, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp))
         Spacer(Modifier.height(16.dp))
     }

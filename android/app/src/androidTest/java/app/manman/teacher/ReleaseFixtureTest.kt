@@ -12,7 +12,8 @@ import app.manman.teacher.data.ClassRepository
 import app.manman.teacher.data.Lesson
 import app.manman.teacher.data.RecordKind
 import app.manman.teacher.data.TimeSlot
-import app.manman.teacher.data.WorkTask
+import app.manman.teacher.data.MarkingRecord
+import app.manman.teacher.data.MarkingStudent
 import app.manman.teacher.domain.LunchRules
 import kotlinx.coroutines.runBlocking
 import org.junit.Assume.assumeTrue
@@ -58,6 +59,11 @@ class ReleaseFixtureTest {
         repository.saveTimeSlot(account, slot)
         repository.saveLesson(account, Lesson("legacy-lesson", 1, slot.id, "虚构语文"))
         val now = Instant.now()
-        repository.saveTask(account, WorkTask("release-reminder-${UUID.randomUUID()}", "虚构提醒", null, null, now.plusSeconds(600), false, now))
+        val oldTask = JSONObject().put("title", "虚构提醒").put("noticeId", JSONObject.NULL).put("dueAt", JSONObject.NULL)
+            .put("remindAt", now.plusSeconds(600).toString()).put("done", false).put("createdAt", now.toString())
+            .put("dueDate", LocalDate.now(LunchRules.defaultZone).toString())
+        app.database.records().saveLocal(account, RecordKind.TASK, "legacy-task", oldTask.toString())
+        repository.saveMarking(account, MarkingRecord("legacy-marking", "虚构事项", "有", "没有", now,
+            listOf(MarkingStudent("legacy-student", "虚构学生", false))))
     }
 }

@@ -34,7 +34,7 @@ fun MenuScreen(state: MainUiState, viewModel: MainViewModel, back: () -> Unit) {
     Column(Modifier.fillMaxSize()) {
         PageHeader("本周菜单", "${start.format(dateFormat)} - ${start.plusDays(6).format(dateFormat)}", back = back,
             action = if (menu != null) {
-                { TextButton(onClick = { selectImage() }, enabled = !state.busy) { Text("更换图片") } }
+                { ActionIcon("edit", "更换菜单图片", { selectImage() }, enabled = !state.busy) }
             } else null)
         if (menu != null) {
             if (state.busy) CircularProgressIndicator(Modifier.padding(horizontal = 16.dp))
