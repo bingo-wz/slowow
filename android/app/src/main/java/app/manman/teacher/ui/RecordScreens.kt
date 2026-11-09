@@ -24,6 +24,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import app.manman.teacher.MainUiState
@@ -32,6 +33,7 @@ import app.manman.teacher.domain.AppTime
 import app.manman.teacher.domain.Leave
 import app.manman.teacher.domain.LeavePeriod
 import app.manman.teacher.domain.MealAbsenceRules
+import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
 @Composable
@@ -40,9 +42,13 @@ fun RecordsScreen(state: MainUiState, viewModel: MainViewModel, onLeave: () -> U
     var selectedLeave by remember { mutableStateOf<Leave?>(null) }
     var deletingLeave by remember { mutableStateOf<Leave?>(null) }
     var toggledDays by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
+    var expandedLeaveDays by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
+    var collapsedLeaveDays by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
     val names = state.students.associate { it.id to it.name }
     val today = rememberToday()
     val absentCount = remember(today, state.students, state.leaves) { MealAbsenceRules.forDate(today, state.students, state.leaves).size }
+    val leaveGroups = remember(state.leaves) { state.leaves.groupBy(Leave::start).toSortedMap(compareByDescending { it }) }
+    val defaultLeaveDay = if (today in leaveGroups) today else leaveGroups.keys.firstOrNull()
     val groups = state.markings.groupBy { it.createdAt.atZone(AppTime.zone).toLocalDate() }.toSortedMap(compareByDescending { it })
     val newest = groups.keys.firstOrNull()
     Column(Modifier.fillMaxSize()) {
@@ -56,11 +62,29 @@ fun RecordsScreen(state: MainUiState, viewModel: MainViewModel, onLeave: () -> U
             }
             item { SectionHeading("请假", "记录请假", onLeave) }
             if (state.leaves.isEmpty()) item { Block { Text("还没有请假记录。", color = MaterialTheme.colorScheme.onSurfaceVariant) } }
-            items(state.leaves.sortedByDescending(Leave::recordedAt), key = { "leave-${it.id}" }) { leave ->
-                Block(onClick = { selectedLeave = leave }) {
-                    Text(names[leave.studentId] ?: "已移出班级的学生", style = MaterialTheme.typography.bodyLarge)
-                    Text("${leave.start} 至 ${leave.end} · ${if (leave.cancelled) "已撤销" else periodLabel(leave)}",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            leaveGroups.forEach { (day, leaves) ->
+                val key = day.toString()
+                val expanded = when (key) {
+                    in expandedLeaveDays -> true
+                    in collapsedLeaveDays -> false
+                    else -> day == defaultLeaveDay
+                }
+                item(key = "leave-day:$key") {
+                    LeaveDayHeading(day, leaves.size, expanded) {
+                        expandedLeaveDays = ArrayList(if (expanded) expandedLeaveDays - key else expandedLeaveDays + key)
+                        collapsedLeaveDays = ArrayList(if (expanded) collapsedLeaveDays + key else collapsedLeaveDays - key)
+                    }
+                }
+                if (expanded) items(leaves.sortedByDescending(Leave::recordedAt), key = { "leave-${it.id}" }) { leave ->
+                    Block(onClick = { selectedLeave = leave }) {
+                        Text(names[leave.studentId] ?: "已移出班级的学生", style = MaterialTheme.typography.bodyLarge)
+                        val end = if (leave.end == leave.start) "" else {
+                            val format = if (leave.end.year == leave.start.year) "M月d日" else "yyyy年M月d日"
+                            "至 ${leave.end.format(DateTimeFormatter.ofPattern(format))} · "
+                        }
+                        Text(end + if (leave.cancelled) "已撤销" else periodLabel(leave),
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
             item { Spacer(Modifier.height(8.dp)); SectionHeading("班级标记", "新建", onMark) }
@@ -108,6 +132,21 @@ fun RecordsScreen(state: MainUiState, viewModel: MainViewModel, onLeave: () -> U
             confirmButton = { TextButton(onClick = { viewModel.deleteCancelledLeave(leave.id) { deletingLeave = null } },
                 enabled = !state.busy) { Text("删除") } },
             dismissButton = { TextButton(onClick = { deletingLeave = null }) { Text("取消") } })
+    }
+}
+
+@Composable
+private fun LeaveDayHeading(day: LocalDate, count: Int, expanded: Boolean, onToggle: () -> Unit) {
+    val date = day.format(DateTimeFormatter.ofPattern("yyyy年M月d日"))
+    Row(Modifier.fillMaxWidth().semantics {
+        contentDescription = "请假日期 $date"
+        stateDescription = if (expanded) "已展开" else "已折叠"
+    }.clickable(onClick = onToggle).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(date, style = MaterialTheme.typography.titleMedium)
+            Text("$count 条记录", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        LineIcon(if (expanded) "up" else "down")
     }
 }
 
