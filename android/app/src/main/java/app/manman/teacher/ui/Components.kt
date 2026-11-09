@@ -106,12 +106,12 @@ fun MainButton(text: String, onClick: () -> Unit, enabled: Boolean = true, modif
 }
 
 @Composable
-fun EmptyHint(title: String, detail: String, action: String, onAction: () -> Unit) {
+fun EmptyHint(title: String, detail: String, action: String, enabled: Boolean = true, onAction: () -> Unit) {
     Block {
         Text(title, style = MaterialTheme.typography.bodyLarge)
         Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        if (action.startsWith("添加") || action.startsWith("新建")) ActionIcon("plus", action, onAction)
-        else TextButton(onClick = onAction) { Text(action) }
+        if (action.startsWith("添加") || action.startsWith("新建")) ActionIcon("plus", action, onAction, enabled = enabled)
+        else TextButton(onClick = onAction, enabled = enabled) { Text(action) }
     }
 }
 

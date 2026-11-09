@@ -150,6 +150,11 @@ func (f *fakeRecognizer) Notice(_ context.Context, _ string, _ []recognition.Ima
 	f.called++
 	return recognition.NoticeResult{Items: []recognition.NoticeItem{}}, nil
 }
+func (f *fakeRecognizer) Schedule(_ context.Context, images []recognition.Image, onOutput func()) (recognition.ScheduleResult, error) {
+	f.called++
+	onOutput()
+	return recognition.ScheduleResult{Warnings: []string{}, Slots: []recognition.ScheduleSlot{{Weekday: 1, Title: "第一节"}}}, nil
+}
 func TestRecognitionRequiresConfirmationAndOwnImages(t *testing.T) {
 	files, err := attachments.New(t.TempDir())
 	if err != nil {
@@ -230,7 +235,7 @@ func TestRecognitionClaimBindsTwoAccounts(t *testing.T) {
 func TestRemovedRecognitionEndpointsAreUnavailable(t *testing.T) {
 	model := &fakeRecognizer{}
 	server := New(fakeVerifier{}, &fakeStore{}, nil, model, nil)
-	for _, path := range []string{"/v1/recognize/menu", "/v1/recognize/schedule"} {
+	for _, path := range []string{"/v1/recognize/menu"} {
 		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{}`))
 		req.Header.Set("Authorization", "Bearer valid")
 		result := httptest.NewRecorder()

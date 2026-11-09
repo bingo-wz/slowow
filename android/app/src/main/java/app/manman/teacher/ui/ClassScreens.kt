@@ -44,7 +44,7 @@ fun ClassScreen(state: MainUiState, back: () -> Unit, onImport: () -> Unit, onSt
         PageHeader("班级", "${activeStudents.size} 位学生", back = back, action = { ActionIcon("plus", "添加学生", onImport) })
         if (activeStudents.isEmpty()) {
             Column(Modifier.padding(horizontal = 16.dp)) {
-                EmptyHint("还没有学生名单", "从 Excel 复制姓名，粘贴后就可以一起添加。", "添加学生", onImport)
+                EmptyHint("还没有学生名单", "从 Excel 复制姓名，粘贴后就可以一起添加。", "添加学生", onAction = onImport)
             }
         } else {
             LazyColumn(Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

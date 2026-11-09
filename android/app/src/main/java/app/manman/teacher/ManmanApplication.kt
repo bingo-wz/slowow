@@ -13,6 +13,7 @@ import app.manman.teacher.sync.SyncEngine
 import app.manman.teacher.sync.HttpsSyncTransport
 import app.manman.teacher.reminders.ReminderScheduler
 import app.manman.teacher.recognition.RecognitionClient
+import app.manman.teacher.recognition.ScheduleRecognition
 import app.manman.teacher.fonts.AppFonts
 import app.manman.teacher.fonts.AppTextSizes
 
@@ -34,6 +35,7 @@ class ManmanApplication : Application() {
     }
     val reminders: ReminderScheduler by lazy { ReminderScheduler(this) }
     val recognition: RecognitionClient by lazy { RecognitionClient(BuildConfig.SYNC_BASE_URL, auth) }
+    val scheduleRecognition: ScheduleRecognition by lazy { ScheduleRecognition(BuildConfig.SYNC_BASE_URL, auth) }
     val fonts: AppFonts by lazy { AppFonts(this, BuildConfig.SYNC_BASE_URL) }
     val textSizes: AppTextSizes by lazy { AppTextSizes(this) }
 }

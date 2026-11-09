@@ -38,6 +38,7 @@ import java.time.format.DateTimeFormatter
 fun RecordsScreen(state: MainUiState, viewModel: MainViewModel, onLeave: () -> Unit, onEditLeave: (String) -> Unit,
     onMark: () -> Unit, onMarking: (String) -> Unit, onMealAbsences: () -> Unit) {
     var selectedLeave by remember { mutableStateOf<Leave?>(null) }
+    var deletingLeave by remember { mutableStateOf<Leave?>(null) }
     var toggledDays by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
     val names = state.students.associate { it.id to it.name }
     val today = rememberToday()
@@ -97,9 +98,16 @@ fun RecordsScreen(state: MainUiState, viewModel: MainViewModel, onLeave: () -> U
                 if (!leave.cancelled) Row {
                     TextButton(onClick = { selectedLeave = null; onEditLeave(leave.id) }) { Text("修改") }
                     TextButton(onClick = { selectedLeave = null; viewModel.saveLeave(leave.copy(cancelled = true)) }) { Text("撤销请假") }
-                }
+                } else TextButton(onClick = { selectedLeave = null; deletingLeave = leave }) { Text("删除记录") }
             },
             dismissButton = { TextButton(onClick = { selectedLeave = null }) { Text("关闭") } })
+    }
+    deletingLeave?.let { leave ->
+        AlertDialog(onDismissRequest = { deletingLeave = null }, title = { Text("删除已撤销的请假？") },
+            text = { Text("这条记录将从列表中移除并同步删除。") },
+            confirmButton = { TextButton(onClick = { viewModel.deleteCancelledLeave(leave.id) { deletingLeave = null } },
+                enabled = !state.busy) { Text("删除") } },
+            dismissButton = { TextButton(onClick = { deletingLeave = null }) { Text("取消") } })
     }
 }
 

@@ -14,7 +14,7 @@ func TestRecognitionDiagnosticsExcludePrivateInput(t *testing.T) {
 	previous := log.Writer()
 	log.SetOutput(&output)
 	defer log.SetOutput(previous)
-	handler := observeRecognition(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	handler := observeRecognition("notice", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", "请求内容无效")
 	}))
 	req := httptest.NewRequest(http.MethodPost, "/v1/recognize/notice?private=secret", strings.NewReader("虚构学生姓名"))

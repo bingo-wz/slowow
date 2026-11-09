@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import android.net.Uri
+import android.os.SystemClock
 import app.manman.teacher.auth.AuthException
 import app.manman.teacher.auth.VerificationRequest
 import app.manman.teacher.data.ClassRepository
@@ -23,6 +24,9 @@ import app.manman.teacher.sync.SyncPhase
 import app.manman.teacher.sync.SyncResult
 import app.manman.teacher.sync.SyncWorker
 import app.manman.teacher.recognition.NoticeSuggestion
+import app.manman.teacher.recognition.ScheduleSuggestion
+import app.manman.teacher.recognition.ScheduleProgressUpdate
+import app.manman.teacher.recognition.SchedulePhase
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -35,6 +39,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.time.LocalDate
+
+data class ScheduleProgressState(val update: ScheduleProgressUpdate, val startedAt: Long)
 
 data class MainUiState(
     val restoring: Boolean = true,
@@ -54,6 +60,9 @@ data class MainUiState(
     val notices: List<Notice> = emptyList(),
     val tasks: List<WorkTask> = emptyList(),
     val noticeSuggestion: NoticeSuggestion? = null,
+    val scheduleSuggestion: ScheduleSuggestion? = null,
+    val scheduleSourceUris: List<String> = emptyList(),
+    val scheduleProgress: ScheduleProgressState? = null,
     val lessonReminderMinutes: Int? = null,
     val pendingCount: Int = 0,
     val conflicts: List<LocalRecord> = emptyList(),
@@ -67,6 +76,7 @@ class MainViewModel(private val application: ManmanApplication) : ViewModel() {
     private val mutableState = MutableStateFlow(MainUiState())
     private var manualSync: Job? = null
     private var reminderRefresh: Job? = null
+    private var scheduleJob: Job? = null
     val state: StateFlow<MainUiState> = mutableState.asStateFlow()
 
     init {
@@ -139,6 +149,12 @@ class MainViewModel(private val application: ManmanApplication) : ViewModel() {
         mutableState.update { it.copy(message = if (leave.cancelled) "请假已撤销。" else "请假已记录。") }
     }
 
+    fun deleteCancelledLeave(id: String, onDone: () -> Unit) = perform {
+        repository.deleteCancelledLeave(requireAccount(), id)
+        onDone()
+        mutableState.update { it.copy(message = "请假记录已删除。") }
+    }
+
     fun saveMarking(record: MarkingRecord, onDone: () -> Unit) = perform {
         repository.saveMarking(requireAccount(), record)
         onDone()
@@ -171,6 +187,51 @@ class MainViewModel(private val application: ManmanApplication) : ViewModel() {
     }
 
     fun clearNoticeSuggestion() = mutableState.update { it.copy(noticeSuggestion = null) }
+
+    fun recognizeSchedule(uris: List<Uri>, onDone: () -> Unit) {
+        if (state.value.busy) return
+        val startedAt = SystemClock.elapsedRealtime()
+        mutableState.update { it.copy(busy = true, error = null, message = null, scheduleSuggestion = null, scheduleSourceUris = uris.map(Uri::toString),
+            scheduleProgress = ScheduleProgressState(ScheduleProgressUpdate(SchedulePhase.PREPARING), startedAt)) }
+        scheduleJob = viewModelScope.launch {
+            try {
+                val account = requireAccount()
+                val suggestion = application.scheduleRecognition.recognize(application, account, uris) { progress ->
+                    mutableState.update { current ->
+                        if (current.accountId == account) current.copy(scheduleProgress = ScheduleProgressState(progress, startedAt)) else current
+                    }
+                }
+                require(state.value.accountId == account) { "账号已变化，请重新识别。" }
+                mutableState.update { it.copy(scheduleSuggestion = suggestion) }
+                onDone()
+            } catch (error: CancellationException) {
+                mutableState.update { it.copy(message = "已停止本次识别。") }
+                throw error
+            } catch (error: AuthException) {
+                mutableState.update { it.copy(error = error.message ?: "请重新登录后识别。") }
+            } catch (error: IllegalArgumentException) {
+                mutableState.update { it.copy(error = error.message ?: "请检查选择的图片。") }
+            } catch (_: Exception) {
+                mutableState.update { it.copy(error = "识别暂时未完成，请稍后重试。") }
+            } finally {
+                mutableState.update { it.copy(busy = false, scheduleProgress = null) }
+            }
+        }
+    }
+
+    fun cancelScheduleRecognition() { scheduleJob?.cancel() }
+
+    fun clearScheduleSuggestion() = mutableState.update { it.copy(scheduleSuggestion = null, scheduleSourceUris = emptyList()) }
+
+    fun updateScheduleSuggestion(suggestion: ScheduleSuggestion) = mutableState.update {
+        it.copy(scheduleSuggestion = suggestion)
+    }
+
+    fun saveRecognizedSchedule(suggestion: ScheduleSuggestion, replace: Boolean, onDone: () -> Unit) = perform {
+        repository.saveRecognizedSchedule(requireAccount(), suggestion, replace)
+        mutableState.update { it.copy(scheduleSuggestion = null, scheduleSourceUris = emptyList(), message = "课程与作息已保存。") }
+        onDone()
+    }
 
     fun stageImages(draftId: String, uris: List<Uri>) = perform {
         val existing = state.value.imageDrafts[draftId].orEmpty()

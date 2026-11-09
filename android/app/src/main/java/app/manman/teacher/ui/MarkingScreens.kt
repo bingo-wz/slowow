@@ -67,7 +67,7 @@ fun MarkingScreen(state: MainUiState, viewModel: MainViewModel, existing: Markin
     Column(Modifier.fillMaxSize()) {
         PageHeader(if (existing == null) "班级标记" else "编辑班级标记", "先设置事项，再点选学生", back = back)
         if (students.isEmpty()) {
-            Column(Modifier.padding(horizontal = 16.dp)) { EmptyHint("先添加学生", "有名单后就可以给全班做标记。", "添加学生", onAddStudents) }
+            Column(Modifier.padding(horizontal = 16.dp)) { EmptyHint("先添加学生", "有名单后就可以给全班做标记。", "添加学生", onAction = onAddStudents) }
         } else {
             LazyVerticalGrid(columns = GridCells.Adaptive(minStudentWidth), modifier = Modifier.weight(1f),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),

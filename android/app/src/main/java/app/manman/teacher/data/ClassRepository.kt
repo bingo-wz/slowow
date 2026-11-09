@@ -4,6 +4,7 @@ import androidx.room.withTransaction
 import app.manman.teacher.domain.Leave
 import app.manman.teacher.domain.Student
 import app.manman.teacher.domain.TaskOrdering
+import app.manman.teacher.recognition.ScheduleSuggestion
 import kotlinx.coroutines.flow.Flow
 import org.json.JSONObject
 import java.time.LocalDate
@@ -35,6 +36,15 @@ class ClassRepository(private val database: ManmanDatabase) {
         require(!leave.end.isBefore(leave.start)) { "结束日期不能早于开始日期。" }
         require(leave.end.toEpochDay() - leave.start.toEpochDay() <= 366) { "一次请假最多记录 367 天。" }
         dao.saveLocal(accountId, RecordKind.LEAVE, leave.id, RecordCodec.leave(leave))
+    }
+
+    suspend fun deleteCancelledLeave(accountId: String, id: String) {
+        database.withTransaction {
+            val current = requireNotNull(dao.find(accountId, RecordKind.LEAVE, id)) { "请假记录不存在。" }
+            require(!current.deleted && current.conflictVersion == null) { "请假已删除或存在同步冲突。" }
+            require(RecordCodec.leave(current).cancelled) { "只有已撤销的请假可以删除。" }
+            dao.saveLocal(accountId, RecordKind.LEAVE, id, current.payload, deleted = true)
+        }
     }
 
     suspend fun saveMarking(accountId: String, record: MarkingRecord) {
@@ -71,6 +81,67 @@ class ClassRepository(private val database: ManmanDatabase) {
 
     suspend fun deleteLesson(accountId: String, lesson: Lesson) {
         dao.saveLocal(accountId, RecordKind.LESSON, lesson.id, RecordCodec.lesson(lesson), deleted = true)
+    }
+
+    suspend fun saveRecognizedSchedule(accountId: String, suggestion: ScheduleSuggestion, replace: Boolean) {
+        database.withTransaction {
+            val existing = dao.snapshot(accountId).filter { !it.deleted && it.kind in setOf(RecordKind.TIME_SLOT, RecordKind.LESSON) }
+            require(existing.none { it.conflictVersion != null }) { "请先处理课程与作息的同步冲突。" }
+            val oldSlots = existing.filter { it.kind == RecordKind.TIME_SLOT }.map(RecordCodec::timeSlot)
+            val oldLessons = existing.filter { it.kind == RecordKind.LESSON }.map(RecordCodec::lesson)
+            val slots = if (replace) mutableListOf() else oldSlots.toMutableList()
+            val lessons = if (replace) mutableListOf() else oldLessons.toMutableList()
+            val created = mutableListOf<TimeSlot>()
+            val modified = mutableListOf<Lesson>()
+            val seenSlots = mutableSetOf<Pair<Int, String>>()
+            val seenLessons = mutableSetOf<Pair<Int, String>>()
+            require(suggestion.slots.isNotEmpty() || suggestion.lessons.isNotEmpty()) { "没有可保存的课程或作息。" }
+            suggestion.slots.forEach { item ->
+                val title = item.title.trim()
+                val start = item.start
+                val end = item.end
+                require(item.weekday in 1..7 && title.isNotEmpty() && title.length <= 30 && start != null && end != null && start < end) {
+                    "请补全每个作息的星期、名称和正确的开始结束时间。"
+                }
+                require(seenSlots.add(item.weekday to title)) { "星期${item.weekday}的「$title」重复，请先修改。" }
+                val matches = slots.filter { it.title == title && (it.weekdays.isEmpty() || item.weekday in it.weekdays) }
+                require(matches.size <= 1) { "星期${item.weekday}已有多个「$title」，请先调整。" }
+                val current = matches.firstOrNull()
+                require(current == null || (current.start == start && current.end == end)) { "星期${item.weekday}的「$title」时间不同，请先调整，或选择替换全部。" }
+                if (current == null) {
+                    val slot = TimeSlot(UUID.randomUUID().toString(), title, start, end, setOf(item.weekday))
+                    slots.add(slot)
+                    created.add(slot)
+                }
+            }
+            created.forEach { candidate ->
+                val day = candidate.weekdays.single()
+                val overlap = slots.firstOrNull { other ->
+                    other.id != candidate.id && (other.weekdays.isEmpty() || day in other.weekdays) &&
+                        candidate.start < other.end && other.start < candidate.end
+                }
+                require(overlap == null) { "星期${day}的「${candidate.title}」与「${overlap?.title}」时间重叠，请先核对。" }
+            }
+            suggestion.lessons.forEach { item ->
+                val title = item.slot.trim()
+                val subject = item.subject.trim()
+                require(item.weekday in 1..7 && title.isNotEmpty() && subject.isNotEmpty() && subject.length <= 50) { "请补全每项课程。" }
+                require(seenLessons.add(item.weekday to title)) { "星期${item.weekday}的「$title」有重复课程，请先修改。" }
+                val matches = slots.filter { it.title == title && (it.weekdays.isEmpty() || item.weekday in it.weekdays) }
+                require(matches.size == 1) { "星期${item.weekday}的「$title」找不到唯一作息，请导入作息表或补充时间。" }
+                val slot = matches.single()
+                val currentLessons = lessons.filter { it.weekday == item.weekday && it.slotId == slot.id }
+                require(currentLessons.size <= 1) { "星期${item.weekday}的「$title」已有多个课程，请先处理。" }
+                val current = currentLessons.firstOrNull()
+                val lesson = Lesson(current?.id ?: UUID.randomUUID().toString(), item.weekday, slot.id, subject)
+                lessons.removeAll { it.id == lesson.id }
+                lessons.add(lesson)
+                modified.add(lesson)
+            }
+            if (replace) existing.forEach { dao.saveLocal(accountId, it.kind, it.id, it.payload, deleted = true) }
+            created.forEach { dao.saveLocal(accountId, RecordKind.TIME_SLOT, it.id, RecordCodec.timeSlot(it)) }
+            modified.forEach { dao.saveLocal(accountId, RecordKind.LESSON, it.id, RecordCodec.lesson(it)) }
+        }
     }
 
     suspend fun saveNotice(accountId: String, notice: Notice, images: List<AttachmentMeta> = emptyList()) {

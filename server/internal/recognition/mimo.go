@@ -1,6 +1,7 @@
 package recognition
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -40,6 +41,7 @@ type NoticeResult struct {
 
 type Service interface {
 	Notice(context.Context, string, []Image) (NoticeResult, error)
+	Schedule(context.Context, []Image, func()) (ScheduleResult, error)
 }
 
 type Client struct {
@@ -81,6 +83,10 @@ func (c *Client) Notice(ctx context.Context, text string, images []Image) (Notic
 }
 
 func (c *Client) generate(ctx context.Context, prompt, text string, images []Image, target any) error {
+	return c.generateWithOptions(ctx, prompt, text, images, target, 4096, nil)
+}
+
+func (c *Client) generateWithOptions(ctx context.Context, prompt, text string, images []Image, target any, tokens int, onOutput func()) error {
 	key, err := os.ReadFile(c.keyFile)
 	if err != nil {
 		log.Print("识别诊断 模型阶段=key_read")
@@ -102,7 +108,7 @@ func (c *Client) generate(ctx context.Context, prompt, text string, images []Ima
 		}})
 	}
 	requestBody, err := json.Marshal(map[string]any{
-		"model": c.model, "stream": false, "max_completion_tokens": 4096,
+		"model": c.model, "stream": onOutput != nil, "max_completion_tokens": tokens,
 		"thinking": map[string]string{"type": "disabled"}, "response_format": map[string]string{"type": "json_object"},
 		"messages": []map[string]any{{"role": "system", "content": prompt}, {"role": "user", "content": parts}},
 	})
@@ -138,6 +144,13 @@ func (c *Client) generate(ctx context.Context, prompt, text string, images []Ima
 	}
 	if resp.StatusCode != http.StatusOK {
 		return ErrUnavailable
+	}
+	if onOutput != nil {
+		content, err := readModelStream(resp.Body, onOutput)
+		if err != nil {
+			return err
+		}
+		return decodeModelContent(content, target)
 	}
 	var response struct {
 		Choices []struct {
@@ -180,7 +193,11 @@ func (c *Client) generate(ctx context.Context, prompt, text string, images []Ima
 		log.Printf("识别诊断 模型阶段=response_incomplete 原因=%s", reason)
 		return ErrInvalidResult
 	}
-	decoder := json.NewDecoder(strings.NewReader(response.Choices[0].Message.Content))
+	return decodeModelContent(response.Choices[0].Message.Content, target)
+}
+
+func decodeModelContent(content string, target any) error {
+	decoder := json.NewDecoder(strings.NewReader(content))
 	if err := decoder.Decode(target); err != nil {
 		logModelJSONError(err)
 		return ErrInvalidResult
@@ -191,6 +208,60 @@ func (c *Client) generate(ctx context.Context, prompt, text string, images []Ima
 		return ErrInvalidResult
 	}
 	return nil
+}
+
+func readModelStream(body io.Reader, onOutput func()) (string, error) {
+	scanner := bufio.NewScanner(io.LimitReader(body, (2<<20)+1))
+	scanner.Buffer(make([]byte, 4096), 2<<20)
+	var result strings.Builder
+	finished, done, reported := false, false, false
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if data == "[DONE]" {
+			done = true
+			break
+		}
+		var chunk struct {
+			Choices []struct {
+				FinishReason *string `json:"finish_reason"`
+				Delta        struct {
+					Content *string `json:"content"`
+				} `json:"delta"`
+			} `json:"choices"`
+		}
+		if json.Unmarshal([]byte(data), &chunk) != nil || len(chunk.Choices) > 1 {
+			return "", ErrInvalidResult
+		}
+		if len(chunk.Choices) == 0 {
+			continue
+		}
+		choice := chunk.Choices[0]
+		if choice.FinishReason != nil {
+			if *choice.FinishReason != "stop" {
+				return "", ErrInvalidResult
+			}
+			finished = true
+		}
+		if choice.Delta.Content != nil && *choice.Delta.Content != "" {
+			if result.Len()+len(*choice.Delta.Content) > 1<<20 {
+				return "", ErrInvalidResult
+			}
+			result.WriteString(*choice.Delta.Content)
+			if !reported {
+				reported = true
+				onOutput()
+			}
+		}
+	}
+	if scanner.Err() != nil || !finished || !done || result.Len() == 0 {
+		log.Print("识别诊断 模型阶段=stream_incomplete")
+		return "", ErrInvalidResult
+	}
+	return result.String(), nil
 }
 
 func logModelEnvelopeError(err error, size int) {

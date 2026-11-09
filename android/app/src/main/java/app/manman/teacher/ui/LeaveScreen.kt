@@ -53,7 +53,7 @@ fun LeaveScreen(state: MainUiState, viewModel: MainViewModel, existing: Leave?, 
         PageHeader(if (existing == null) "记录请假" else "修改请假", back = back)
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             if (students.isEmpty()) {
-                EmptyHint("先添加学生", "有名单后就可以记录请假。", "添加学生", onAddStudents)
+                EmptyHint("先添加学生", "有名单后就可以记录请假。", "添加学生", onAction = onAddStudents)
             } else {
                 Block(onClick = { chooseStudent = true }) {
                     Text("学生", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

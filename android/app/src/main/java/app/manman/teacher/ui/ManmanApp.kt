@@ -30,7 +30,7 @@ import app.manman.teacher.IncomingShare
 
 private enum class Page {
     TODAY, RECORDS, CLASS, SETTINGS, IMPORT, STUDENT, LEAVE, MEAL_ABSENCES, MARKING, MARKING_DETAIL,
-    MENU, SCHEDULE, WORK, NOTICE_DETAIL, NOTICE_EDIT, TASK_DETAIL, TASK_EDIT, IMAGE, NOTICE_REVIEW,
+    MENU, SCHEDULE, SCHEDULE_REVIEW, WORK, NOTICE_DETAIL, NOTICE_EDIT, TASK_DETAIL, TASK_EDIT, IMAGE, NOTICE_REVIEW,
 }
 
 @Composable
@@ -53,7 +53,6 @@ fun ManmanApp(viewModel: MainViewModel, shared: IncomingShare? = null, consumeSh
     // 覆盖安装时，已移除页面的恢复状态回到对应的普通页面。
     val page = when (pageName) {
         "MENU_REVIEW" -> Page.MENU
-        "SCHEDULE_REVIEW" -> Page.SCHEDULE
         "LUNCH", "LUNCH_HISTORY" -> Page.MEAL_ABSENCES
         else -> Page.entries.firstOrNull { it.name == pageName } ?: Page.TODAY
     }
@@ -67,6 +66,11 @@ fun ManmanApp(viewModel: MainViewModel, shared: IncomingShare? = null, consumeSh
     }
     LaunchedEffect(state.accountId) {
         if (state.accountId == null) pageName = Page.TODAY.name
+    }
+    LaunchedEffect(page, state.restoring, state.accountId, state.scheduleSuggestion, state.busy) {
+        if (page == Page.SCHEDULE_REVIEW && !state.restoring && state.accountId != null && state.scheduleSuggestion == null && !state.busy) {
+            pageName = Page.SCHEDULE.name
+        }
     }
     LaunchedEffect(shared, state.accountId) {
         if (shared != null && state.accountId != null) {
@@ -90,6 +94,7 @@ fun ManmanApp(viewModel: MainViewModel, shared: IncomingShare? = null, consumeSh
             Page.LEAVE -> Page.valueOf(leaveReturn)
             Page.SETTINGS -> Page.TODAY
             Page.CLASS, Page.SCHEDULE -> Page.SETTINGS
+            Page.SCHEDULE_REVIEW -> Page.SCHEDULE
             Page.MEAL_ABSENCES -> Page.RECORDS
             Page.NOTICE_REVIEW -> Page.NOTICE_DETAIL
             Page.MENU, Page.WORK -> Page.TODAY
@@ -148,7 +153,8 @@ fun ManmanApp(viewModel: MainViewModel, shared: IncomingShare? = null, consumeSh
                         MarkingDetailScreen(it, state, viewModel, ::back) { markingReturn = Page.MARKING_DETAIL.name; go(Page.MARKING) }
                     }
                     Page.MENU -> MenuScreen(state, viewModel, ::back)
-                    Page.SCHEDULE -> ScheduleScreen(state, viewModel, ::back)
+                    Page.SCHEDULE -> ScheduleScreen(state, viewModel, ::back) { go(Page.SCHEDULE_REVIEW) }
+                    Page.SCHEDULE_REVIEW -> state.scheduleSuggestion?.let { ScheduleReviewScreen(it, state, viewModel, ::back) }
                     Page.WORK -> WorkScreen(state, viewModel, showNotices, { showNotices = it }, ::back,
                         onNotice = { selectedNoticeId = it; go(Page.NOTICE_DETAIL) },
                         onTask = { selectedTaskId = it; selectedNoticeId = ""; suggestionIndex = -1; taskReturn = Page.WORK.name; go(Page.TASK_DETAIL) },
