@@ -14,6 +14,7 @@ import app.manman.teacher.data.MenuWeek
 import app.manman.teacher.data.AttachmentMeta
 import app.manman.teacher.data.TimeSlot
 import app.manman.teacher.data.Lesson
+import app.manman.teacher.data.ScheduleProfile
 import app.manman.teacher.data.Notice
 import app.manman.teacher.data.WorkTask
 import app.manman.teacher.data.RecordCodec
@@ -57,6 +58,7 @@ data class MainUiState(
     val imageDrafts: Map<String, List<AttachmentMeta>> = emptyMap(),
     val timeSlots: List<TimeSlot> = emptyList(),
     val lessons: List<Lesson> = emptyList(),
+    val scheduleProfile: ScheduleProfile = ScheduleProfile(),
     val notices: List<Notice> = emptyList(),
     val tasks: List<WorkTask> = emptyList(),
     val noticeSuggestion: NoticeSuggestion? = null,
@@ -281,6 +283,12 @@ class MainViewModel(private val application: ManmanApplication) : ViewModel() {
         mutableState.update { it.copy(message = "课程已保存。") }
     }
 
+    fun saveScheduleProfile(profile: ScheduleProfile, onDone: () -> Unit) = perform {
+        repository.saveScheduleProfile(requireAccount(), profile)
+        onDone()
+        mutableState.update { it.copy(message = "课表信息已保存。") }
+    }
+
     fun deleteLesson(lesson: Lesson, onDone: () -> Unit) = perform {
         repository.deleteLesson(requireAccount(), lesson)
         onDone()
@@ -423,10 +431,13 @@ class MainViewModel(private val application: ManmanApplication) : ViewModel() {
             try { JSONObject(it.payload) } catch (_: Exception) { unreadable++; null }
         }
         val lessonReminder = reminderSettings?.optInt("lessonMinutes", -1)?.takeIf { it in 0..60 }
+        val scheduleProfile = visible.firstOrNull { it.kind == RecordKind.SETTINGS && it.id == "schedule_profile" }?.let {
+            try { RecordCodec.scheduleProfile(it) } catch (_: Exception) { unreadable++; null }
+        } ?: ScheduleProfile()
         mutableState.update { it.copy(
             students = students, leaves = leaves, markings = markings,
             menuWeeks = menuWeeks, attachments = attachments,
-            timeSlots = timeSlots, lessons = lessons, notices = notices, tasks = tasks,
+            timeSlots = timeSlots, lessons = lessons, scheduleProfile = scheduleProfile, notices = notices, tasks = tasks,
             lessonReminderMinutes = lessonReminder,
             pendingCount = records.count(LocalRecord::dirty),
             conflicts = records.filter { record -> record.conflictVersion != null }, unreadableCount = unreadable,

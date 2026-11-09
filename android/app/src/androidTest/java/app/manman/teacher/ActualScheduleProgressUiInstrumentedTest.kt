@@ -1,6 +1,5 @@
 package app.manman.teacher
 
-import android.graphics.Bitmap
 import android.os.SystemClock
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.core.app.ActivityScenario
@@ -8,6 +7,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
+import androidx.test.uiautomator.StaleObjectException
 import androidx.test.uiautomator.Configurator
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
@@ -20,6 +20,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 class ActualScheduleProgressUiInstrumentedTest {
@@ -40,10 +41,9 @@ class ActualScheduleProgressUiInstrumentedTest {
                 device.findObject(By.desc("设置")).click()
                 assertTrue(device.wait(Until.hasObject(By.text("课程与作息")), 10_000))
                 device.findObject(By.text("课程与作息")).click()
-                assertTrue(device.wait(Until.hasObject(By.text("识别课程表和作息表")), 10_000))
+                assertTrue(device.wait(Until.hasObject(By.desc("识别课程表和作息表")), 10_000))
                 lateinit var state: MutableStateFlow<MainUiState>
                 val started = SystemClock.elapsedRealtime()
-                val initial = screenshot()
                 scenario.onActivity { activity ->
                     val model = ViewModelProvider(activity, MainViewModel.factory(app))[MainViewModel::class.java]
                     val field = MainViewModel::class.java.getDeclaredField("mutableState")
@@ -52,39 +52,38 @@ class ActualScheduleProgressUiInstrumentedTest {
                     state = field.get(model) as MutableStateFlow<MainUiState>
                     state.update { it.copy(busy = true, scheduleProgress = ScheduleProgressState(ScheduleProgressUpdate(SchedulePhase.UPLOADING, 37, 100), started)) }
                 }
-                val uploading = awaitVisualChange(initial, 0.415f, 0.46f, 120)
-                initial.recycle()
+                val uploading = device.wait(Until.findObject(By.text("正在发送图片 37%")), 10_000)
+                assertTrue("上传进度应显示在屏幕上", uploading != null && uploading.visibleBounds.height() > 0)
                 state.update { it.copy(scheduleProgress = ScheduleProgressState(ScheduleProgressUpdate(SchedulePhase.RECEIVING), started)) }
-                val receiving = awaitVisualChange(uploading, 0.415f, 0.46f, 120)
-                uploading.recycle()
-                val ticking = awaitVisualChange(receiving, 0.52f, 0.56f, 20)
-                receiving.recycle()
-                ticking.recycle()
+                val receiving = device.wait(Until.findObject(By.text("AI 正在返回识别内容，完成后即可核对")), 10_000)
+                if (receiving == null || receiving.visibleBounds.height() == 0) {
+                    device.dumpWindowHierarchy(File(app.cacheDir, "schedule-progress-failed.xml"))
+                    device.takeScreenshot(File(app.cacheDir, "schedule-progress-failed.png"))
+                }
+                assertTrue("识别状态应显示在屏幕上", receiving != null && receiving.visibleBounds.height() > 0)
+                val elapsed = device.wait(Until.findObject(By.textContains("已用 ")), 10_000)
+                assertTrue(elapsed != null && elapsed.visibleBounds.height() > 0)
+                val first = elapsed.text
+                var updated = false
+                repeat(20) {
+                    SystemClock.sleep(250)
+                    try {
+                        val current = device.findObject(By.textContains("已用 "))
+                        if (current != null && current.text != first) updated = true
+                    } catch (_: StaleObjectException) { }
+                }
+                if (!updated) {
+                    device.dumpWindowHierarchy(File(app.cacheDir, "schedule-elapsed-failed.xml"))
+                    device.takeScreenshot(File(app.cacheDir, "schedule-elapsed-failed.png"))
+                    File(app.cacheDir, "schedule-elapsed-first.txt").writeText(first)
+                }
+                assertTrue("识别等待期间用时应持续更新", updated)
             }
         } finally {
             app.textSizes.select(oldAppSize)
             try { setFontScale(device, app, oldScale) }
             finally { config.waitForIdleTimeout = oldIdleTimeout }
         }
-    }
-
-    private fun screenshot(): Bitmap = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
-        ?: throw AssertionError("无法截取测试画面")
-
-    private fun awaitVisualChange(previous: Bitmap, top: Float, bottom: Float, threshold: Int): Bitmap {
-        repeat(30) {
-            SystemClock.sleep(250)
-            val current = screenshot()
-            var changed = 0
-            for (y in (current.height * top).toInt() until (current.height * bottom).toInt() step 2) {
-                for (x in (current.width * 0.08f).toInt() until (current.width * 0.90f).toInt() step 2) {
-                    if (current.getPixel(x, y) != previous.getPixel(x, y)) changed++
-                }
-            }
-            if (changed >= threshold) return current
-            current.recycle()
-        }
-        throw AssertionError("识别状态或已用时间未在画面中更新")
     }
 
     private fun setFontScale(device: UiDevice, app: ManmanApplication, value: String) {

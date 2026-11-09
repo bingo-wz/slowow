@@ -51,7 +51,7 @@ class TeacherWorkflowInstrumentedTest {
         val students = (1..52).map { index -> Student("student-$index", "学生%02d".format(index), normallyEatsAtSchool = index > 3, position = index) }
         students.forEach { repository.saveStudent(account, it) }
         val today = LocalDate.now(AppTime.zone)
-        val slot = TimeSlot("slot-1", "第一节", LocalTime.of(8, 0), LocalTime.of(8, 40))
+        val slot = TimeSlot("slot-1", "第一节", LocalTime.of(9, 0), LocalTime.of(9, 40))
         repository.saveTimeSlot(account, slot)
         repository.saveLesson(account, Lesson("lesson-1", today.dayOfWeek.value, slot.id, "语文"))
         listOf(4, 5).forEach { index ->
@@ -89,21 +89,16 @@ class TeacherWorkflowInstrumentedTest {
             device.pressBack()
             device.pressBack()
             tapText(device, "课程与作息")
-            assertTrue(device.wait(Until.hasObject(By.text("第一节")), 10_000))
-            assertTrue(device.wait(Until.hasObject(By.text("语文")), 10_000))
+            assertTrue(device.wait(Until.hasObject(By.text("教师课程时间表")), 10_000))
             assertTrue(!device.hasObject(By.textContains("导入课程")))
             tapDescription(device, "添加节次")
             assertTrue(device.wait(Until.hasObject(By.clazz("android.widget.EditText")), 10_000))
             device.findObject(By.clazz("android.widget.EditText")).text = "活动"
             tapText(device, "保存")
-            assertTrue(device.wait(Until.hasObject(By.text("活动")), 10_000))
-            repeat(3) {
-                if (!device.hasObject(By.desc("添加活动课程"))) {
-                    device.swipe(device.displayWidth / 2, device.displayHeight * 3 / 4,
-                        device.displayWidth / 2, device.displayHeight / 3, 20)
-                }
-            }
-            tapDescription(device, "添加活动课程")
+            tapText(device, "今日视图")
+            scrollTo(device, "活动 · 未安排")
+            tapText(device, "活动 · 未安排")
+            tapText(device, "添加事项")
             assertTrue(device.wait(Until.hasObject(By.clazz("android.widget.EditText")), 10_000))
             device.findObject(By.clazz("android.widget.EditText")).text = "班会"
             tapText(device, "保存")
@@ -195,5 +190,18 @@ class TeacherWorkflowInstrumentedTest {
         val element = device.wait(Until.findObject(By.desc(label)), 10_000)
             ?: throw AssertionError("无法找到图标：$label")
         element.click()
+    }
+
+    private fun scrollTo(device: UiDevice, label: String) {
+        repeat(12) {
+            if (device.wait(Until.hasObject(By.text(label)), 700)) return
+            device.swipe(device.displayWidth / 2, device.displayHeight * 3 / 4,
+                device.displayWidth / 2, device.displayHeight / 3, 60)
+            android.os.SystemClock.sleep(400)
+        }
+        val cache = ApplicationProvider.getApplicationContext<ManmanApplication>().cacheDir
+        device.dumpWindowHierarchy(File(cache, "manman-scroll-failed.xml"))
+        device.takeScreenshot(File(cache, "manman-scroll-failed.png"))
+        throw AssertionError("未找到文字：$label")
     }
 }

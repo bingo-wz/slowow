@@ -32,8 +32,11 @@ object ReminderPlan {
 
     private fun dailyTimes(day: LocalDate, lessons: List<Lesson>, slots: List<TimeSlot>, minutes: Int?): List<Instant> {
         val times = slots.associateBy { it.id }
-        val courses = if (minutes == null || minutes !in 0..60) emptyList() else lessons.filter { it.weekday == day.dayOfWeek.value }.mapNotNull { lesson ->
-            times[lesson.slotId]?.let { slot -> day.atTime(slot.start).atZone(AppTime.zone).toInstant().minusSeconds(minutes * 60L) }
+        val courses = lessons.filter { it.weekday == day.dayOfWeek.value }.mapNotNull { lesson ->
+            val offset = if (lesson.reminderMinutes == -1) null else lesson.reminderMinutes ?: minutes
+            if (offset == null || offset !in 0..60) null else times[lesson.slotId]
+                ?.takeIf { it.weekdays.isEmpty() || day.dayOfWeek.value in it.weekdays }
+                ?.let { slot -> day.atTime(slot.start).atZone(AppTime.zone).toInstant().minusSeconds(offset * 60L) }
         }
         return courses
     }

@@ -1,6 +1,7 @@
 package app.manman.teacher.reminders
 
 import app.manman.teacher.data.Lesson
+import app.manman.teacher.data.ScheduleKind
 import app.manman.teacher.data.TimeSlot
 import app.manman.teacher.data.WorkTask
 import app.manman.teacher.domain.AppTime
@@ -43,6 +44,18 @@ class ReminderPlanTest {
         assertEquals(reminder, ReminderPlan.next(emptyList(), listOf(lesson), listOf(slot), 10, sunday))
         assertTrue(ReminderPlan.hasDue(emptyList(), listOf(lesson), listOf(slot), 10, reminder, reminder.plusSeconds(60)))
         assertFalse(ReminderPlan.hasDue(emptyList(), listOf(lesson), listOf(slot), 10, reminder.plusSeconds(1), reminder.plusSeconds(60)))
+    }
+
+    @Test fun perItemReminderAndFreeTimeDoNotChangeLegacyReminders() {
+        val now = at("2026-11-09", 7, 0)
+        val slot = TimeSlot("slot", "第一节", LocalTime.of(8, 0), LocalTime.of(8, 40), setOf(1))
+        val lesson = Lesson("lesson", 1, slot.id, "语文")
+        assertEquals(at("2026-11-09", 7, 55), ReminderPlan.next(emptyList(), listOf(lesson), listOf(slot), 5, now))
+        assertEquals(at("2026-11-09", 7, 45), ReminderPlan.next(emptyList(), listOf(lesson.copy(reminderMinutes = 15)), listOf(slot), null, now))
+        assertNull(ReminderPlan.next(emptyList(), listOf(lesson.copy(reminderMinutes = -1)), listOf(slot), 5, now))
+        assertEquals(at("2026-11-09", 7, 55), ReminderPlan.next(emptyList(), listOf(lesson.copy(kind = ScheduleKind.FREE, reminderMinutes = 5)), listOf(slot), null, now))
+        assertNull(ReminderPlan.next(emptyList(), listOf(lesson.copy(kind = ScheduleKind.FREE, reminderMinutes = -1)), listOf(slot), 5, now))
+        assertNull(ReminderPlan.next(emptyList(), listOf(lesson), listOf(slot.copy(weekdays = setOf(2))), 5, now))
     }
 
 }

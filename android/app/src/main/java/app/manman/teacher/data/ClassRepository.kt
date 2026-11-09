@@ -70,13 +70,77 @@ class ClassRepository(private val database: ManmanDatabase) {
     suspend fun saveTimeSlot(accountId: String, slot: TimeSlot) {
         require(slot.title.isNotBlank() && slot.title.length <= 30) { "请填写不超过 30 个字的节次名称。" }
         require(slot.start < slot.end) { "结束时间应晚于开始时间。" }
-        dao.saveLocal(accountId, RecordKind.TIME_SLOT, slot.id, RecordCodec.timeSlot(slot.copy(title = slot.title.trim())))
+        require(slot.weekdays.all { it in 1..7 }) { "作息的星期无效。" }
+        database.withTransaction {
+            val records = dao.snapshot(accountId).filter { !it.deleted }
+            val current = records.firstOrNull { it.kind == RecordKind.TIME_SLOT && it.id == slot.id }?.let(RecordCodec::timeSlot)
+            val slots = records.filter { it.kind == RecordKind.TIME_SLOT && it.id != slot.id }.map(RecordCodec::timeSlot)
+            val lessons = records.filter { it.kind == RecordKind.LESSON }.map(RecordCodec::lesson)
+            require(lessons.none { (it.slotId == slot.id || it.endSlotId == slot.id) && slot.weekdays.isNotEmpty() && it.weekday !in slot.weekdays }) {
+                "已有课程使用该星期的节次，请先调整课程。"
+            }
+            if (current == null || current.start != slot.start || current.end != slot.end || current.weekdays != slot.weekdays) {
+                val overlap = slots.firstOrNull { other ->
+                    (slot.weekdays.isEmpty() || other.weekdays.isEmpty() || slot.weekdays.any { it in other.weekdays }) &&
+                        slot.start < other.end && other.start < slot.end
+                }
+                require(overlap == null) { "作息时间与「${overlap?.title}」重叠，请先调整。" }
+            }
+            val affected = lessons.filter { it.slotId == slot.id || it.endSlotId == slot.id }.map(Lesson::id).toSet()
+            validateSpannedLessons(lessons, slots + slot, affected)
+            dao.saveLocal(accountId, RecordKind.TIME_SLOT, slot.id, RecordCodec.timeSlot(slot.copy(title = slot.title.trim())))
+        }
     }
 
     suspend fun saveLesson(accountId: String, lesson: Lesson) {
         require(lesson.weekday in 1..7 && lesson.slotId.isNotBlank()) { "请选择星期和节次。" }
         require(lesson.subject.isNotBlank() && lesson.subject.length <= 50) { "请填写不超过 50 个字的课程名称。" }
-        dao.saveLocal(accountId, RecordKind.LESSON, lesson.id, RecordCodec.lesson(lesson.copy(subject = lesson.subject.trim())))
+        require(listOf(lesson.teachers, lesson.className, lesson.location, lesson.role).all { it.length <= 80 } &&
+            lesson.note.length <= 500 && lesson.preparation.length <= 500) { "课程附加信息过长，请精简后保存。" }
+        require(lesson.reminderMinutes == null || lesson.reminderMinutes in -1..60) { "提醒时间无效。" }
+        database.withTransaction {
+            val records = dao.snapshot(accountId).filter { !it.deleted }
+            val slots = records.filter { it.kind == RecordKind.TIME_SLOT }.map(RecordCodec::timeSlot)
+            val start = slots.firstOrNull { it.id == lesson.slotId && (it.weekdays.isEmpty() || lesson.weekday in it.weekdays) }
+            require(start != null) { "所选星期没有这个节次，请先调整作息。" }
+            val lessons = records.filter { it.kind == RecordKind.LESSON && it.id != lesson.id }.map(RecordCodec::lesson) + lesson
+            require(lessons.count { it.weekday == lesson.weekday && it.slotId == lesson.slotId } == 1) { "这个节次已有课程，请先编辑原课程。" }
+            validateSpannedLessons(lessons, slots, setOf(lesson.id))
+            dao.saveLocal(accountId, RecordKind.LESSON, lesson.id, RecordCodec.lesson(lesson.copy(subject = lesson.subject.trim())))
+        }
+    }
+
+    private fun validateSpannedLessons(lessons: List<Lesson>, slots: List<TimeSlot>, affected: Set<String>) {
+        val byId = slots.associateBy(TimeSlot::id)
+        fun end(lesson: Lesson): java.time.LocalTime? {
+            val start = byId[lesson.slotId] ?: return null
+            val last = if (lesson.endSlotId == null) start else byId[lesson.endSlotId]
+            if (last == null || (last.weekdays.isNotEmpty() && lesson.weekday !in last.weekdays) || last.end < start.end) {
+                require(lesson.id !in affected) { "跨节结束节次无效，请重新选择。" }
+                return null
+            }
+            return last.end
+        }
+        lessons.filter { it.endSlotId != null }.forEach { lesson ->
+            val start = byId[lesson.slotId] ?: return@forEach
+            val finish = end(lesson) ?: return@forEach
+            val overlapping = lessons.firstOrNull { other ->
+                if (other.id == lesson.id || other.weekday != lesson.weekday || (lesson.id !in affected && other.id !in affected)) false
+                else {
+                    val otherStart = byId[other.slotId]
+                    val otherEnd = end(other)
+                    otherStart != null && otherEnd != null && start.start < otherEnd && otherStart.start < finish
+                }
+            }
+            require(overlapping == null) { "跨节事项与「${overlapping?.subject}」重叠，请先调整。" }
+        }
+    }
+
+    suspend fun saveScheduleProfile(accountId: String, profile: ScheduleProfile) {
+        require(listOf(profile.school, profile.term, profile.className, profile.myName).all { it.length <= 80 } && profile.notes.length <= 1000) {
+            "课表信息过长，请精简后保存。"
+        }
+        dao.saveLocal(accountId, RecordKind.SETTINGS, "schedule_profile", RecordCodec.scheduleProfile(profile))
     }
 
     suspend fun deleteLesson(accountId: String, lesson: Lesson) {
@@ -133,11 +197,12 @@ class ClassRepository(private val database: ManmanDatabase) {
                 val currentLessons = lessons.filter { it.weekday == item.weekday && it.slotId == slot.id }
                 require(currentLessons.size <= 1) { "星期${item.weekday}的「$title」已有多个课程，请先处理。" }
                 val current = currentLessons.firstOrNull()
-                val lesson = Lesson(current?.id ?: UUID.randomUUID().toString(), item.weekday, slot.id, subject)
+                val lesson = current?.copy(subject = subject) ?: Lesson(UUID.randomUUID().toString(), item.weekday, slot.id, subject)
                 lessons.removeAll { it.id == lesson.id }
                 lessons.add(lesson)
                 modified.add(lesson)
             }
+            validateSpannedLessons(lessons, slots, modified.map(Lesson::id).toSet())
             if (replace) existing.forEach { dao.saveLocal(accountId, it.kind, it.id, it.payload, deleted = true) }
             created.forEach { dao.saveLocal(accountId, RecordKind.TIME_SLOT, it.id, RecordCodec.timeSlot(it)) }
             modified.forEach { dao.saveLocal(accountId, RecordKind.LESSON, it.id, RecordCodec.lesson(it)) }

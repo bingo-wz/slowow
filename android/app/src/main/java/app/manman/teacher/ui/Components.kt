@@ -155,6 +155,12 @@ fun LineIcon(name: String, modifier: Modifier = Modifier, color: Color = LocalCo
                 line(8f, 3f, 8f, 7f); line(16f, 3f, 16f, 7f)
                 line(8f, 13f, 11f, 16f); line(11f, 16f, 16f, 10f)
             }
+            "print" -> {
+                line(7f, 8f, 7f, 3f); line(7f, 3f, 17f, 3f); line(17f, 3f, 17f, 8f)
+                drawRoundRect(color, Offset(4f * unit, 8f * unit), Size(16f * unit, 9f * unit),
+                    androidx.compose.ui.geometry.CornerRadius(2f * unit), style = Stroke(stroke))
+                line(7f, 14f, 17f, 14f); line(7f, 14f, 7f, 21f); line(7f, 21f, 17f, 21f); line(17f, 21f, 17f, 14f)
+            }
             "meal" -> {
                 line(6f, 4f, 6f, 11f); line(3.5f, 4f, 3.5f, 9f); line(8.5f, 4f, 8.5f, 9f)
                 line(3.5f, 9f, 6f, 11f); line(8.5f, 9f, 6f, 11f); line(6f, 11f, 6f, 20f)

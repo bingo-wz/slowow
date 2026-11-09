@@ -39,7 +39,30 @@ data class MarkingRecord(
 data class MenuWeek(val id: String, val start: LocalDate, val attachmentId: String)
 data class AttachmentMeta(val id: String, val mime: String, val size: Long, val sha256: String)
 data class TimeSlot(val id: String, val title: String, val start: LocalTime, val end: LocalTime, val weekdays: Set<Int> = emptySet())
-data class Lesson(val id: String, val weekday: Int, val slotId: String, val subject: String)
+enum class ScheduleKind { TEACHING, DUTY, FREE }
+data class Lesson(
+    val id: String,
+    val weekday: Int,
+    val slotId: String,
+    val subject: String,
+    val kind: ScheduleKind? = null,
+    val teachers: String = "",
+    val className: String = "",
+    val location: String = "",
+    val role: String = "",
+    val note: String = "",
+    val preparation: String = "",
+    val endSlotId: String? = null,
+    val reminderMinutes: Int? = null,
+)
+data class ScheduleProfile(
+    val school: String = "",
+    val term: String = "",
+    val className: String = "",
+    val myName: String = "",
+    val termStart: LocalDate? = null,
+    val notes: String = "",
+)
 data class Notice(val id: String, val title: String, val content: String, val createdAt: Instant, val attachmentIds: List<String> = emptyList())
 data class WorkTask(
     val id: String,
@@ -79,10 +102,30 @@ object RecordCodec {
     }
 
     fun lesson(value: Lesson): String = JSONObject().put("weekday", value.weekday)
-        .put("slotId", value.slotId).put("subject", value.subject).toString()
+        .put("slotId", value.slotId).put("subject", value.subject)
+        .put("kind", value.kind?.name ?: JSONObject.NULL).put("teachers", value.teachers)
+        .put("className", value.className).put("location", value.location).put("role", value.role)
+        .put("note", value.note).put("preparation", value.preparation)
+        .put("endSlotId", value.endSlotId ?: JSONObject.NULL)
+        .put("reminderMinutes", value.reminderMinutes ?: JSONObject.NULL).toString()
 
     fun lesson(record: LocalRecord): Lesson = JSONObject(record.payload).let {
-        Lesson(record.id, it.getInt("weekday"), it.getString("slotId"), it.getString("subject"))
+        val kind = ScheduleKind.entries.firstOrNull { kind -> kind.name == it.optString("kind") }
+        Lesson(record.id, it.getInt("weekday"), it.getString("slotId"), it.getString("subject"), kind,
+            it.optString("teachers", ""), it.optString("className", ""), it.optString("location", ""),
+            it.optString("role", ""), it.optString("note", ""), it.optString("preparation", ""),
+            if (it.isNull("endSlotId")) null else it.optString("endSlotId").takeIf(String::isNotBlank),
+            if (it.isNull("reminderMinutes")) null else it.optInt("reminderMinutes", -2).takeIf { value -> value in -1..60 })
+    }
+
+    fun scheduleProfile(value: ScheduleProfile): String = JSONObject().put("school", value.school)
+        .put("term", value.term).put("className", value.className).put("myName", value.myName)
+        .put("termStart", value.termStart?.toString() ?: JSONObject.NULL).put("notes", value.notes).toString()
+
+    fun scheduleProfile(record: LocalRecord): ScheduleProfile = JSONObject(record.payload).let {
+        val termStart = if (it.isNull("termStart")) null else runCatching { LocalDate.parse(it.getString("termStart")) }.getOrNull()
+        ScheduleProfile(it.optString("school", ""), it.optString("term", ""), it.optString("className", ""),
+            it.optString("myName", ""), termStart, it.optString("notes", ""))
     }
 
     fun notice(value: Notice): String = JSONObject().put("title", value.title)
