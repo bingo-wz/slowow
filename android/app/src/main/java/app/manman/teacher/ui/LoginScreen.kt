@@ -17,7 +17,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
@@ -75,7 +74,7 @@ fun LoginScreen(state: MainUiState, viewModel: MainViewModel) {
             MainButton("登录", { viewModel.verifyCode(code) }, enabled = !state.busy, modifier = Modifier.fillMaxWidth())
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("已发送至 ${maskPhone(phone)}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                TextButton(onClick = { code = ""; viewModel.resetVerification() }, enabled = !state.busy) { Text("更换号码 / 重发") }
+                FeedbackTextButton(onClick = { code = ""; viewModel.resetVerification() }, enabled = !state.busy) { Text("更换号码 / 重发") }
             }
         }
         Spacer(Modifier.height(24.dp))
@@ -97,7 +96,7 @@ fun QuietTextField(
     TextField(
         value = value,
         onValueChange = onValueChange,
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().feedbackOnFocus(),
         label = { Text(label) },
         enabled = enabled,
         singleLine = singleLine,

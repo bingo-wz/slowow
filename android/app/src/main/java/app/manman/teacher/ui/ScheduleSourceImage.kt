@@ -56,7 +56,7 @@ fun ScheduleSourceImage(uri: Uri, onClose: () -> Unit) {
         } catch (error: CancellationException) { throw error }
         catch (_: Exception) { failed = true }
     }
-    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+    Dialog(onDismissRequest = feedbackClick(onClose), properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
             Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
                 PageHeader("查看原图", "双指缩放，对照后返回核对", back = onClose)

@@ -20,7 +20,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -110,14 +109,14 @@ fun NoticeEditorScreen(state: MainUiState, viewModel: MainViewModel, existing: N
             (kept + staged.map { it.id }).forEachIndexed { index, id ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("图片 ${index + 1}", Modifier.padding(top = 12.dp))
-                    TextButton(onClick = {
+                    FeedbackTextButton(onClick = {
                         val newImage = staged.firstOrNull { it.id == id }
                         if (newImage != null) viewModel.discardImage(draftId, newImage)
                         else keptIds = kept.filterNot { it == id }.joinToString(",")
                     }) { Text("移除") }
                 }
             }
-            if (kept.size + staged.size < 5) TextButton(onClick = {
+            if (kept.size + staged.size < 5) FeedbackTextButton(onClick = {
                 picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
             }, enabled = !state.busy) { Text("添加图片") }
             Text("原文和图片会保存在你的账号下。保存后可手动创建待办或选择识别。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -131,10 +130,10 @@ fun NoticeEditorScreen(state: MainUiState, viewModel: MainViewModel, existing: N
         Spacer(Modifier.height(16.dp))
     }
     if (confirmBack) androidx.compose.material3.AlertDialog(
-        onDismissRequest = { confirmBack = false }, title = { Text("通知还没有保存") },
+        onDismissRequest = feedbackClick { confirmBack = false }, title = { Text("通知还没有保存") },
         text = { Text("离开后，未保存的内容不会保留。") },
-        confirmButton = { TextButton(onClick = { confirmBack = false; viewModel.discardDraft(draftId); back() }) { Text("放弃修改") } },
-        dismissButton = { TextButton(onClick = { confirmBack = false }) { Text("继续编辑") } },
+        confirmButton = { FeedbackTextButton(onClick = { confirmBack = false; viewModel.discardDraft(draftId); back() }) { Text("放弃修改") } },
+        dismissButton = { FeedbackTextButton(onClick = { confirmBack = false }) { Text("继续编辑") } },
     )
 }
 
@@ -153,7 +152,7 @@ fun NoticeDetailScreen(notice: Notice, state: MainUiState, back: () -> Unit, onE
                     Block(onClick = { onImage(id) }) { Text("查看图片 ${index + 1}  ›", color = MaterialTheme.colorScheme.primary) }
                 }
             }
-            TextButton(onClick = { confirmRecognition = true }, enabled = !state.busy) { Text("识别通知中的待办") }
+            FeedbackTextButton(onClick = { confirmRecognition = true }, enabled = !state.busy) { Text("识别通知中的待办") }
             SectionHeading("相关待办", "新建", onNewTask)
             val tasks = state.tasks.filter { it.noticeId == notice.id }
             if (tasks.isEmpty()) Text("还没有从这条通知添加待办。", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -167,11 +166,11 @@ fun NoticeDetailScreen(notice: Notice, state: MainUiState, back: () -> Unit, onE
         }
     }
     if (confirmRecognition) androidx.compose.material3.AlertDialog(
-        onDismissRequest = { confirmRecognition = false },
+        onDismissRequest = feedbackClick { confirmRecognition = false },
         title = { Text("发送这条通知进行识别？") },
         text = { Text("将这条通知的原文和 ${notice.attachmentIds.size} 张图片发送给小米 MiMo，可能产生 API 费用。识别结果需逐条检查，不会自动保存；图片需先同步到云端，单次合计不超过 12 MB。") },
-        confirmButton = { TextButton(onClick = { confirmRecognition = false; onRecognize() }) { Text("确认发送") } },
-        dismissButton = { TextButton(onClick = { confirmRecognition = false }) { Text("取消") } },
+        confirmButton = { FeedbackTextButton(onClick = { confirmRecognition = false; onRecognize() }) { Text("确认发送") } },
+        dismissButton = { FeedbackTextButton(onClick = { confirmRecognition = false }) { Text("取消") } },
     )
 }
 
@@ -202,10 +201,10 @@ fun TaskDetailScreen(task: WorkTask, state: MainUiState, viewModel: MainViewMode
         Spacer(Modifier.height(16.dp))
     }
     if (confirmDelete) androidx.compose.material3.AlertDialog(
-        onDismissRequest = { confirmDelete = false }, title = { Text("删除这条待办？") },
+        onDismissRequest = feedbackClick { confirmDelete = false }, title = { Text("删除这条待办？") },
         text = { Text("删除后，这条待办和它的提醒会从已同步的设备中移除。") },
-        confirmButton = { TextButton(onClick = { confirmDelete = false; viewModel.deleteTask(task, back) }) { Text("删除") } },
-        dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("取消") } },
+        confirmButton = { FeedbackTextButton(onClick = { confirmDelete = false; viewModel.deleteTask(task, back) }) { Text("删除") } },
+        dismissButton = { FeedbackTextButton(onClick = { confirmDelete = false }) { Text("取消") } },
     )
 }
 
@@ -246,10 +245,10 @@ fun TaskEditorScreen(state: MainUiState, viewModel: MainViewModel, existing: Wor
                 Text("事项时间", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row {
                     val label = if (due.isNotEmpty()) formatMoment(Instant.parse(due)) else dueDate.takeIf(String::isNotBlank)?.plus("（仅日期）") ?: "未设置"
-                    TextButton(onClick = { chooseMoment(due) { due = it; dueDate = Instant.parse(it).atZone(AppTime.zone).toLocalDate().toString() } }) { Text(label + "  ›") }
-                    if (due.isNotEmpty() || dueDate.isNotEmpty()) TextButton(onClick = { due = ""; dueDate = "" }) { Text("清除") }
+                    FeedbackTextButton(onClick = { chooseMoment(due) { due = it; dueDate = Instant.parse(it).atZone(AppTime.zone).toLocalDate().toString() } }) { Text(label + "  ›") }
+                    if (due.isNotEmpty() || dueDate.isNotEmpty()) FeedbackTextButton(onClick = { due = ""; dueDate = "" }) { Text("清除") }
                 }
-                TextButton(onClick = {
+                FeedbackTextButton(onClick = {
                     val current = dueDate.takeIf(String::isNotBlank)?.let(LocalDate::parse) ?: LocalDate.now(AppTime.zone)
                     DatePickerDialog(context, { _, year, month, day -> dueDate = LocalDate.of(year, month + 1, day).toString(); due = "" },
                         current.year, current.monthValue - 1, current.dayOfMonth).show()
@@ -258,8 +257,8 @@ fun TaskEditorScreen(state: MainUiState, viewModel: MainViewModel, existing: Wor
             Block {
                 Text("提醒时间", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row {
-                    TextButton(onClick = { chooseMoment(reminder) { reminder = it } }) { Text(formatMoment(reminder.takeIf(String::isNotBlank)?.let(Instant::parse)) + "  ›") }
-                    if (reminder.isNotEmpty()) TextButton(onClick = { reminder = "" }) { Text("清除") }
+                    FeedbackTextButton(onClick = { chooseMoment(reminder) { reminder = it } }) { Text(formatMoment(reminder.takeIf(String::isNotBlank)?.let(Instant::parse)) + "  ›") }
+                    if (reminder.isNotEmpty()) FeedbackTextButton(onClick = { reminder = "" }) { Text("清除") }
                 }
                 if (reminder.isNotEmpty() && Instant.parse(reminder).isBefore(Instant.now())) {
                     Text("提醒时间已经过去，不会补发提醒。", style = MaterialTheme.typography.bodySmall)
@@ -276,9 +275,9 @@ fun TaskEditorScreen(state: MainUiState, viewModel: MainViewModel, existing: Wor
         Spacer(Modifier.height(16.dp))
     }
     if (confirmBack) androidx.compose.material3.AlertDialog(
-        onDismissRequest = { confirmBack = false }, title = { Text("待办还没有保存") },
+        onDismissRequest = feedbackClick { confirmBack = false }, title = { Text("待办还没有保存") },
         text = { Text("离开后，未保存的内容不会保留。") },
-        confirmButton = { TextButton(onClick = { confirmBack = false; back() }) { Text("放弃修改") } },
-        dismissButton = { TextButton(onClick = { confirmBack = false }) { Text("继续编辑") } },
+        confirmButton = { FeedbackTextButton(onClick = { confirmBack = false; back() }) { Text("放弃修改") } },
+        dismissButton = { FeedbackTextButton(onClick = { confirmBack = false }) { Text("继续编辑") } },
     )
 }

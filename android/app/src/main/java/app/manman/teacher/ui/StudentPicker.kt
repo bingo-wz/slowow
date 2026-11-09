@@ -1,6 +1,5 @@
 package app.manman.teacher.ui
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,7 +17,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -62,13 +60,13 @@ fun StudentPicker(students: List<Student>, onDismiss: () -> Unit, onSelect: (Stu
     val initials = remember(rows) { rows.mapIndexedNotNull { index, row -> (row as? PickerRow.Heading)?.initial?.let { it to index } } }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    Dialog(onDismissRequest = feedbackClick(onDismiss), properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxWidth().fillMaxHeight(0.9f).padding(horizontal = 16.dp, vertical = 16.dp),
             shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surface) {
             Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("选择学生", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
-                    TextButton(onClick = onDismiss) { Text("取消") }
+                    FeedbackTextButton(onClick = onDismiss) { Text("取消") }
                 }
                 QuietTextField(query, { query = it.take(50) }, "搜索姓名")
                 if (sections == null) {
@@ -86,7 +84,7 @@ fun StudentPicker(students: List<Student>, onDismiss: () -> Unit, onSelect: (Stu
                                     is PickerRow.Heading -> Text(row.initial, Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
                                         style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                                     is PickerRow.Person -> Text(row.student.name,
-                                        Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable { onSelect(row.student) }.padding(8.dp),
+                                        Modifier.fillMaxWidth().heightIn(min = 48.dp).feedbackClickable { onSelect(row.student) }.padding(8.dp),
                                         style = MaterialTheme.typography.bodyLarge)
                                 }
                             }
@@ -95,7 +93,7 @@ fun StudentPicker(students: List<Student>, onDismiss: () -> Unit, onSelect: (Stu
                             horizontalAlignment = Alignment.CenterHorizontally) {
                             initials.forEach { (initial, position) ->
                                 Text(initial, Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                                    .clickable { scope.launch { listState.scrollToItem(position) } }
+                                    .feedbackClickable { scope.launch { listState.scrollToItem(position) } }
                                     .semantics { contentDescription = "跳到 $initial" }.padding(vertical = 8.dp),
                                     textAlign = TextAlign.Center, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                             }

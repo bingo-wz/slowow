@@ -24,7 +24,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -87,7 +86,7 @@ fun SettingsScreen(state: MainUiState, viewModel: MainViewModel, back: () -> Uni
                     SyncPhase.IDLE -> "联网后会自动同步。"
                 }
                 Text(status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                TextButton(onClick = viewModel::syncNow) { Text("立即同步") }
+                FeedbackTextButton(onClick = viewModel::syncNow) { Text("立即同步") }
             }
             if (state.conflicts.isNotEmpty()) {
                 SectionHeading("需要核对")
@@ -101,32 +100,32 @@ fun SettingsScreen(state: MainUiState, viewModel: MainViewModel, back: () -> Uni
             if (state.unreadableCount > 0) {
                 Block { Text("有 ${state.unreadableCount} 条记录暂时无法读取，请保留应用数据并联系开发者。") }
             }
-            TextButton(onClick = { confirmSignOut = true }) { Text("退出登录") }
+            FeedbackTextButton(onClick = { confirmSignOut = true }) { Text("退出登录") }
         }
     }
     if (bindRecognition) AlertDialog(
-        onDismissRequest = { bindRecognition = false; pairingCode = ""; viewModel.clearMessage() },
+        onDismissRequest = feedbackClick { bindRecognition = false; pairingCode = ""; viewModel.clearMessage() },
         title = { Text("绑定识别账号") },
         text = {
             Column {
                 Text("输入电脑上显示的 8 位授权码。最多可绑定两个账号，共用识别额度，各自的班级数据仍然分开保存。", style = MaterialTheme.typography.bodySmall)
-                TextField(value = pairingCode, onValueChange = { pairingCode = it.filter(Char::isDigit).take(8) },
+                TextField(value = pairingCode, onValueChange = { pairingCode = it.filter(Char::isDigit).take(8) }, modifier = Modifier.feedbackOnFocus(),
                     label = { Text("授权码") }, singleLine = true, visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword))
                 state.error?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             }
         },
-        confirmButton = { TextButton(onClick = { viewModel.bindRecognition(pairingCode) { bindRecognition = false; pairingCode = "" } },
+        confirmButton = { FeedbackTextButton(onClick = { viewModel.bindRecognition(pairingCode) { bindRecognition = false; pairingCode = "" } },
             enabled = pairingCode.length == 8 && !state.busy) { Text("绑定") } },
-        dismissButton = { TextButton(onClick = { bindRecognition = false; pairingCode = ""; viewModel.clearMessage() }) { Text("取消") } },
+        dismissButton = { FeedbackTextButton(onClick = { bindRecognition = false; pairingCode = ""; viewModel.clearMessage() }) { Text("取消") } },
     )
     if (confirmSignOut) {
         AlertDialog(
-            onDismissRequest = { confirmSignOut = false },
+            onDismissRequest = feedbackClick { confirmSignOut = false },
             title = { Text(if (state.pendingCount > 0) "还有未同步的更改" else "退出登录？") },
             text = { Text(if (state.pendingCount > 0) "${state.pendingCount} 项更改会保留在这部手机上。请重新登录同一账号继续同步，在同步完成前不要清除应用数据。" else "退出后可以使用手机号再次登录。") },
-            confirmButton = { TextButton(onClick = { confirmSignOut = false; viewModel.signOut() }) { Text("退出登录") } },
-            dismissButton = { TextButton(onClick = { confirmSignOut = false }) { Text("取消") } },
+            confirmButton = { FeedbackTextButton(onClick = { confirmSignOut = false; viewModel.signOut() }) { Text("退出登录") } },
+            dismissButton = { FeedbackTextButton(onClick = { confirmSignOut = false }) { Text("取消") } },
         )
     }
     selectedConflict?.let { record ->
@@ -147,7 +146,7 @@ fun SettingsScreen(state: MainUiState, viewModel: MainViewModel, back: () -> Uni
         } catch (_: Exception) { true }
         val canCompare = localDescription != null && remoteDescription != null && !imageConflict
         AlertDialog(
-            onDismissRequest = { selectedConflict = null },
+            onDismissRequest = feedbackClick { selectedConflict = null },
             title = { Text("核对${kindLabel(record.kind)}") },
             text = {
                 Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -158,8 +157,8 @@ fun SettingsScreen(state: MainUiState, viewModel: MainViewModel, back: () -> Uni
                     Text(if (imageConflict) "图片版本不同，当前暂不能安全比较。请保留本机数据并联系开发者。" else "选择要保留的版本后，记录会再次同步。", style = MaterialTheme.typography.bodySmall)
                 }
             },
-            confirmButton = { TextButton(onClick = { viewModel.resolveConflict(record, true); selectedConflict = null }, enabled = canCompare) { Text("保留本机") } },
-            dismissButton = { TextButton(onClick = { viewModel.resolveConflict(record, false); selectedConflict = null }, enabled = canCompare) { Text("采用云端") } },
+            confirmButton = { FeedbackTextButton(onClick = { viewModel.resolveConflict(record, true); selectedConflict = null }, enabled = canCompare) { Text("保留本机") } },
+            dismissButton = { FeedbackTextButton(onClick = { viewModel.resolveConflict(record, false); selectedConflict = null }, enabled = canCompare) { Text("采用云端") } },
         )
     }
 }
@@ -193,28 +192,28 @@ private fun ReminderSettings(state: MainUiState, viewModel: MainViewModel) {
     Block {
         Text(if (notificationsEnabled) "通知已开启" else "通知未开启", style = MaterialTheme.typography.bodyLarge)
         Text(if (exactEnabled) "准时提醒可用。" else "准时提醒未开启，系统可能延迟通知。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        if (!notificationsEnabled) TextButton(onClick = {
+        if (!notificationsEnabled) FeedbackTextButton(onClick = {
             if (Build.VERSION.SDK_INT >= 33) notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             else context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
         }) { Text("开启通知") }
-        if (!notificationsEnabled) TextButton(onClick = {
+        if (!notificationsEnabled) FeedbackTextButton(onClick = {
             context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
         }) { Text("前往系统通知设置") }
-        if (!exactEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) TextButton(onClick = {
+        if (!exactEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) FeedbackTextButton(onClick = {
             context.startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:${context.packageName}")))
         }) { Text("设置准时提醒") }
         Text("小米手机还可能需要允许后台运行；请在真机上验证提醒。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     if (chooseLessonReminder) AlertDialog(
-        onDismissRequest = { chooseLessonReminder = false }, title = { Text("课程提醒") },
+        onDismissRequest = feedbackClick { chooseLessonReminder = false }, title = { Text("课程提醒") },
         text = {
             Column {
                 listOf(null to "关闭", 0 to "上课时", 5 to "提前 5 分钟", 10 to "提前 10 分钟", 15 to "提前 15 分钟").forEach { (minutes, label) ->
-                    TextButton(onClick = { chooseLessonReminder = false; viewModel.saveLessonReminder(minutes) }) { Text(label) }
+                    FeedbackTextButton(onClick = { chooseLessonReminder = false; viewModel.saveLessonReminder(minutes) }) { Text(label) }
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { chooseLessonReminder = false }) { Text("取消") } },
+        confirmButton = { FeedbackTextButton(onClick = { chooseLessonReminder = false }) { Text("取消") } },
     )
 }
 

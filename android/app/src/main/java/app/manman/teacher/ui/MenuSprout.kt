@@ -2,11 +2,11 @@ package app.manman.teacher.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TooltipAnchorPosition
@@ -54,8 +54,8 @@ private val sproutPixels = listOf(
 fun MenuSprout(onClick: () -> Unit) {
     TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
         tooltip = { PlainTooltip { Text("本周菜单") } }, state = rememberTooltipState()) {
-        Box(Modifier.size(56.dp).clip(CircleShape).background(Color(0xFFE5F0CD))
-            .clickable(onClick = onClick).semantics { contentDescription = "本周菜单"; role = Role.Button },
+        Box(Modifier.size(56.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer)
+            .feedbackClickable(onClick = onClick).semantics { contentDescription = "本周菜单"; role = Role.Button },
             contentAlignment = Alignment.Center) {
             Canvas(Modifier.size(44.dp)) {
                 val unit = size.width / 24f

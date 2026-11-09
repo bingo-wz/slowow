@@ -1,6 +1,5 @@
 package app.manman.teacher.ui
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -20,7 +19,6 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -59,7 +57,7 @@ fun ClassScreen(state: MainUiState, back: () -> Unit, onImport: () -> Unit, onSt
                 }
                 items(activeStudents, key = Student::id) { student ->
                     Row(
-                        Modifier.fillMaxWidth().clickable { onStudent(student.id) }.padding(horizontal = 8.dp, vertical = 12.dp),
+                        Modifier.fillMaxWidth().feedbackClickable { onStudent(student.id) }.padding(horizontal = 8.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(student.name, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
@@ -124,7 +122,7 @@ fun StudentScreen(student: Student, state: MainUiState, viewModel: MainViewModel
                         Text("通常在校吃午饭", style = MaterialTheme.typography.bodyLarge)
                         Text("关闭后，每天都计入不在校用餐。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Switch(checked = eats, onCheckedChange = { eats = it })
+                    Switch(checked = eats, onCheckedChange = feedbackToggle { eats = it })
                 }
             }
             if (eats) {
@@ -134,7 +132,7 @@ fun StudentScreen(student: Student, state: MainUiState, viewModel: MainViewModel
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日").forEachIndexed { index, label ->
                             val bit = 1 shl (index + 1)
-                            FilterChip(selected = excludedMask and bit != 0, onClick = { excludedMask = excludedMask xor bit },
+                            FilterChip(selected = excludedMask and bit != 0, onClick = feedbackClick { excludedMask = excludedMask xor bit },
                                 label = { Text(label) }, border = null,
                                 colors = FilterChipDefaults.filterChipColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
                                     selectedContainerColor = MaterialTheme.colorScheme.primaryContainer))
@@ -142,13 +140,13 @@ fun StudentScreen(student: Student, state: MainUiState, viewModel: MainViewModel
                     }
                 }
             }
-            TextButton(onClick = { editInitial = !editInitial }) { Text(if (editInitial) "收起姓名首字母设置" else "调整姓名首字母") }
+            FeedbackTextButton(onClick = { editInitial = !editInitial }) { Text(if (editInitial) "收起姓名首字母设置" else "调整姓名首字母") }
             if (editInitial) {
                 QuietTextField(initial, { value -> initial = value.uppercase(Locale.ROOT).filter { it in 'A'..'Z' }.take(1) },
                     "首字母（选填）", keyboardType = KeyboardType.Ascii)
                 Text("姓氏是多音字时可填写；留空时自动按拼音分组。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            TextButton(onClick = { confirmRemove = true }) { Text("从当前班级移除") }
+            FeedbackTextButton(onClick = { confirmRemove = true }) { Text("从当前班级移除") }
         }
         MainButton("保存", {
             val days = if (eats) (1..7).filter { excludedMask and (1 shl it) == 0 }.toSet() else emptySet()
@@ -160,11 +158,11 @@ fun StudentScreen(student: Student, state: MainUiState, viewModel: MainViewModel
     }
     if (confirmRemove) {
         AlertDialog(
-            onDismissRequest = { confirmRemove = false },
+            onDismissRequest = feedbackClick { confirmRemove = false },
             title = { Text("移出当前班级？") },
             text = { Text("历史班级标记会保留当时的姓名。") },
-            confirmButton = { TextButton(onClick = { confirmRemove = false; viewModel.saveStudent(student.copy(active = false), back) }) { Text("移除") } },
-            dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text("取消") } },
+            confirmButton = { FeedbackTextButton(onClick = { confirmRemove = false; viewModel.saveStudent(student.copy(active = false), back) }) { Text("移除") } },
+            dismissButton = { FeedbackTextButton(onClick = { confirmRemove = false }) { Text("取消") } },
         )
     }
 }

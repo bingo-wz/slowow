@@ -1,6 +1,5 @@
 package app.manman.teacher.ui
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -11,7 +10,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -42,13 +40,13 @@ fun TextSizeSetting(sizes: AppTextSizes) {
         Text("字体大小", style = MaterialTheme.typography.bodyLarge)
         Text("${selected.title}  ›", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
-    if (choosing) AlertDialog(onDismissRequest = { choosing = false }, title = { Text("字体大小") },
+    if (choosing) AlertDialog(onDismissRequest = feedbackClick { choosing = false }, title = { Text("字体大小") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text("只调整慢慢的文字大小，不改变手机系统设置。", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 AppTextSize.entries.forEach { size ->
-                    Row(Modifier.fillMaxWidth().clickable { sizes.select(size) }.padding(vertical = 4.dp),
+                    Row(Modifier.fillMaxWidth().feedbackClickable { sizes.select(size) }.padding(vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(selected = selected == size, onClick = null)
                         Text(size.title, Modifier.padding(start = 8.dp), style = MaterialTheme.typography.bodyLarge)
@@ -56,6 +54,6 @@ fun TextSizeSetting(sizes: AppTextSizes) {
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { choosing = false }) { Text("完成") } },
+        confirmButton = { FeedbackTextButton(onClick = { choosing = false }) { Text("完成") } },
     )
 }

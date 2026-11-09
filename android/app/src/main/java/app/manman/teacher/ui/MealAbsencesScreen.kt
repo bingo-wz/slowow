@@ -17,7 +17,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -53,7 +52,7 @@ fun MealAbsencesScreen(state: MainUiState, back: () -> Unit) {
             item {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     ActionIcon("back", "前一天", { selectedDate = day.minusDays(1).toString() })
-                    TextButton(onClick = {
+                    FeedbackTextButton(onClick = {
                         DatePickerDialog(context, { _, year, month, date ->
                             selectedDate = LocalDate.of(year, month + 1, date).toString()
                         }, day.year, day.monthValue - 1, day.dayOfMonth).show()

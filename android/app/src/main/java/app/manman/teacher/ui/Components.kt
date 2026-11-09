@@ -2,7 +2,6 @@ package app.manman.teacher.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +20,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.TooltipBox
@@ -29,7 +29,6 @@ import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.rememberTooltipState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,7 +50,7 @@ fun PageHeader(title: String, subtitle: String? = null, back: (() -> Unit)? = nu
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (back != null) {
-            Box(Modifier.size(48.dp).clickable(onClick = back).semantics { contentDescription = "返回" }, contentAlignment = Alignment.Center) {
+            Box(Modifier.size(48.dp).feedbackClickable(onClick = back).semantics { contentDescription = "返回" }, contentAlignment = Alignment.Center) {
                 LineIcon("back")
             }
             Spacer(Modifier.width(8.dp))
@@ -71,13 +70,13 @@ fun PageHeader(title: String, subtitle: String? = null, back: (() -> Unit)? = nu
 fun Block(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
-    color: Color = MaterialTheme.colorScheme.surfaceContainer,
+    color: Color = MaterialTheme.colorScheme.surfaceContainerLow,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val shape = MaterialTheme.shapes.medium
     val base = modifier.fillMaxWidth().background(color, shape)
     Column(
-        modifier = (if (onClick != null) base.clickable(onClick = onClick) else base).padding(16.dp),
+        modifier = (if (onClick != null) base.feedbackClickable(onClick = onClick) else base).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
         content = content,
     )
@@ -89,7 +88,7 @@ fun SectionHeading(title: String, action: String? = null, onAction: (() -> Unit)
         Text(title, style = MaterialTheme.typography.titleMedium)
         if (action != null && onAction != null) {
             if (action == "添加" || action == "新建" || action == "记录请假") ActionIcon("plus", action, onAction)
-            else TextButton(onClick = onAction) { Text(action, style = MaterialTheme.typography.labelMedium) }
+            else FeedbackTextButton(onClick = onAction) { Text(action, style = MaterialTheme.typography.labelMedium) }
         }
     }
 }
@@ -97,7 +96,7 @@ fun SectionHeading(title: String, action: String? = null, onAction: (() -> Unit)
 @Composable
 fun MainButton(text: String, onClick: () -> Unit, enabled: Boolean = true, modifier: Modifier = Modifier) {
     Button(
-        onClick = onClick,
+        onClick = feedbackClick(onClick),
         enabled = enabled,
         modifier = modifier.heightIn(min = 48.dp),
         shape = RoundedCornerShape(16.dp),
@@ -111,7 +110,7 @@ fun EmptyHint(title: String, detail: String, action: String, enabled: Boolean = 
         Text(title, style = MaterialTheme.typography.bodyLarge)
         Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (action.startsWith("添加") || action.startsWith("新建")) ActionIcon("plus", action, onAction, enabled = enabled)
-        else TextButton(onClick = onAction, enabled = enabled) { Text(action) }
+        else FeedbackTextButton(onClick = onAction, enabled = enabled) { Text(action) }
     }
 }
 
@@ -127,15 +126,14 @@ fun SmallBadge(text: String) {
 fun ActionIcon(icon: String, label: String, onClick: () -> Unit, enabled: Boolean = true, modifier: Modifier = Modifier) {
     TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
         tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) {
-        IconButton(onClick = onClick, enabled = enabled, modifier = modifier.semantics { contentDescription = label }) {
+        IconButton(onClick = feedbackClick(onClick), enabled = enabled, modifier = modifier.semantics { contentDescription = label }) {
             LineIcon(icon, Modifier.alpha(if (enabled) 1f else 0.38f))
         }
     }
 }
 
 @Composable
-fun LineIcon(name: String, modifier: Modifier = Modifier) {
-    val color = MaterialTheme.colorScheme.onSurface
+fun LineIcon(name: String, modifier: Modifier = Modifier, color: Color = LocalContentColor.current) {
     Canvas(modifier.size(24.dp)) {
         val unit = size.width / 24f
         val stroke = 1.8f * unit
@@ -151,6 +149,17 @@ fun LineIcon(name: String, modifier: Modifier = Modifier) {
             "records" -> {
                 drawRoundRect(color, Offset(5f * unit, 3f * unit), Size(14f * unit, 18f * unit), androidx.compose.ui.geometry.CornerRadius(2f * unit), style = Stroke(stroke))
                 line(8f, 8f, 16f, 8f); line(8f, 12f, 16f, 12f); line(8f, 16f, 13f, 16f)
+            }
+            "todo" -> {
+                drawRoundRect(color, Offset(5f * unit, 5f * unit), Size(14f * unit, 16f * unit), androidx.compose.ui.geometry.CornerRadius(2f * unit), style = Stroke(stroke))
+                line(8f, 3f, 8f, 7f); line(16f, 3f, 16f, 7f)
+                line(8f, 13f, 11f, 16f); line(11f, 16f, 16f, 10f)
+            }
+            "meal" -> {
+                line(6f, 4f, 6f, 11f); line(3.5f, 4f, 3.5f, 9f); line(8.5f, 4f, 8.5f, 9f)
+                line(3.5f, 9f, 6f, 11f); line(8.5f, 9f, 6f, 11f); line(6f, 11f, 6f, 20f)
+                drawOval(color, Offset(13f * unit, 4f * unit), Size(5f * unit, 8f * unit), style = Stroke(stroke))
+                line(15.5f, 12f, 15.5f, 20f)
             }
             "class" -> {
                 drawCircle(color, 3f * unit, Offset(12f * unit, 8f * unit), style = Stroke(stroke))

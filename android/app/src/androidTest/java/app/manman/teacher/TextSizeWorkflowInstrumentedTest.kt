@@ -1,6 +1,7 @@
 package app.manman.teacher
 
 import android.graphics.Rect
+import android.os.SystemClock
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -82,9 +83,14 @@ class TextSizeWorkflowInstrumentedTest {
 
     private fun scrollTo(device: UiDevice, label: String): UiObject2 {
         repeat(6) {
-            device.wait(Until.findObject(By.text(label)), 1_000)?.let { return it }
+            device.waitForIdle()
+            device.wait(Until.findObject(By.text(label)), 1_000)?.let {
+                val bounds = it.visibleBounds
+                if (bounds.top > device.displayHeight / 6 && bounds.bottom < device.displayHeight * 5 / 6) return it
+            }
             device.swipe(device.displayWidth / 2, device.displayHeight * 3 / 4,
-                device.displayWidth / 2, device.displayHeight / 3, 20)
+                device.displayWidth / 2, device.displayHeight / 3, 60)
+            SystemClock.sleep(700)
         }
         val cache = ApplicationProvider.getApplicationContext<ManmanApplication>().cacheDir
         device.dumpWindowHierarchy(File(cache, "text-size-test-failed.xml"))

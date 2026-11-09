@@ -13,7 +13,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -42,7 +41,7 @@ fun NoticeReviewScreen(result: NoticeSuggestion, back: () -> Unit, onSelect: (In
                     Text("日期：${item.date ?: "未识别"} · 时刻：${item.time ?: "未识别"}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (item.evidence.isNotBlank()) Text("依据：${item.evidence}", style = MaterialTheme.typography.bodySmall)
                     if (item.uncertain) Text("时间或内容需要特别核对", style = MaterialTheme.typography.bodySmall)
-                    TextButton(onClick = { onSelect(index) }, enabled = !item.consumed) { Text(if (item.consumed) "已添加" else "编辑并添加") }
+                    FeedbackTextButton(onClick = { onSelect(index) }, enabled = !item.consumed) { Text(if (item.consumed) "已添加" else "编辑并添加") }
                 }
             }
             Text("识别结果可能有误，原通知始终可以查看。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -50,9 +49,9 @@ fun NoticeReviewScreen(result: NoticeSuggestion, back: () -> Unit, onSelect: (In
         }
     }
     if (confirmExit) AlertDialog(
-        onDismissRequest = { confirmExit = false }, title = { Text("放弃剩余候选待办？") },
+        onDismissRequest = feedbackClick { confirmExit = false }, title = { Text("放弃剩余候选待办？") },
         text = { Text("未添加的候选不会保存，已经添加的待办不受影响。") },
-        confirmButton = { TextButton(onClick = { confirmExit = false; back() }) { Text("放弃剩余候选") } },
-        dismissButton = { TextButton(onClick = { confirmExit = false }) { Text("继续核对") } },
+        confirmButton = { FeedbackTextButton(onClick = { confirmExit = false; back() }) { Text("放弃剩余候选") } },
+        dismissButton = { FeedbackTextButton(onClick = { confirmExit = false }) { Text("继续核对") } },
     )
 }

@@ -1,6 +1,7 @@
 package app.manman.teacher.ui
 
-import androidx.compose.foundation.clickable
+import android.os.SystemClock
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -88,6 +89,8 @@ fun TaskAgenda(
     }
 
     val listState = rememberLazyListState()
+    val feedback = rememberActionFeedback()
+    val lastDragTick = remember { longArrayOf(0L) }
     val reorderState = rememberReorderableLazyListState(listState) { from, to ->
         val fromId = (from.key as? String)?.takeIf { it.startsWith("task:") }?.removePrefix("task:")
         val toId = (to.key as? String)?.takeIf { it.startsWith("task:") }?.removePrefix("task:")
@@ -101,6 +104,11 @@ fun TaskAgenda(
             if (sourceIndex >= 0 && targetIndex >= 0 && sourceIndex != targetIndex) {
                 ids.add(targetIndex, ids.removeAt(sourceIndex))
                 draggedOrder = draggedOrder + (dateKey(day) to ids)
+                val now = SystemClock.elapsedRealtime()
+                if (now - lastDragTick[0] >= 80) {
+                    feedback.dragStep()
+                    lastDragTick[0] = now
+                }
             }
         }
     }
@@ -118,7 +126,7 @@ fun TaskAgenda(
                     day.isBefore(today) && tasks.any { !it.done } -> "${day.format(DateTimeFormatter.ofPattern("yyyy年M月d日"))} · 已过期"
                     else -> day.format(DateTimeFormatter.ofPattern("yyyy年M月d日"))
                 }
-                Row(Modifier.fillMaxWidth().semantics { stateDescription = if (isCollapsed) "已折叠" else "已展开" }.clickable {
+                Row(Modifier.fillMaxWidth().semantics { stateDescription = if (isCollapsed) "已折叠" else "已展开" }.feedbackClickable {
                     collapsed = ArrayList(if (isCollapsed) collapsed - key else collapsed + key)
                 }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
@@ -136,11 +144,12 @@ fun TaskAgenda(
                 }
                 items(tasks, key = { "task:${it.id}" }) { task ->
                     ReorderableItem(reorderState, key = "task:${task.id}") { _ ->
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer, MaterialTheme.shapes.medium),
+                            verticalAlignment = Alignment.CenterVertically) {
                             Checkbox(checked = task.done, enabled = !state.busy,
-                                onCheckedChange = { checked -> viewModel.setTaskDone(task.id, checked) },
+                                onCheckedChange = feedbackToggle { checked -> viewModel.setTaskDone(task.id, checked) },
                                 modifier = Modifier.semantics { contentDescription = if (task.done) "取消完成${task.title}" else "完成${task.title}" })
-                            Column(Modifier.weight(1f).clickable { onTask(task.id) }.padding(vertical = 8.dp)) {
+                            Column(Modifier.weight(1f).feedbackClickable { onTask(task.id) }.padding(vertical = 8.dp)) {
                                 Text(task.title, style = MaterialTheme.typography.bodyLarge,
                                     color = if (task.done) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
                                     textDecoration = if (task.done) TextDecoration.LineThrough else TextDecoration.None)
@@ -151,7 +160,7 @@ fun TaskAgenda(
                             }
                             Box(Modifier.size(48.dp).draggableHandle(
                                 enabled = !state.busy,
-                                onDragStarted = { dragging = true },
+                                onDragStarted = { dragging = true; lastDragTick[0] = SystemClock.elapsedRealtime(); feedback.dragStart() },
                                 onDragStopped = {
                                     dragging = false
                                     draggedOrder[dateKey(TaskOrdering.date(task))]?.let { ids ->

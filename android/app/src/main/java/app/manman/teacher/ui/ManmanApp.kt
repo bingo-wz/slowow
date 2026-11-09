@@ -13,8 +13,8 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -24,6 +24,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.manman.teacher.MainViewModel
 import app.manman.teacher.IncomingShare
@@ -112,15 +115,19 @@ fun ManmanApp(viewModel: MainViewModel, shared: IncomingShare? = null, consumeSh
         snackbarHost = { SnackbarHost(snackbar) },
         bottomBar = {
             if (state.accountId != null && page in setOf(Page.TODAY, Page.RECORDS)) {
-                NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
-                    listOf(Triple(Page.TODAY, "今天", "home"), Triple(Page.RECORDS, "记录", "records")).forEach { (destination, label, icon) ->
-                        NavigationBarItem(
-                            selected = page == destination,
-                            onClick = { go(destination) },
-                            icon = { LineIcon(icon) },
-                            label = { Text(label, style = MaterialTheme.typography.labelSmall) },
-                            colors = NavigationBarItemDefaults.colors(indicatorColor = MaterialTheme.colorScheme.primaryContainer),
-                        )
+                Surface(color = MaterialTheme.colorScheme.surfaceContainerLow,
+                    shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)) {
+                    NavigationBar(containerColor = Color.Transparent) {
+                        listOf(Triple(Page.TODAY, "今天", "home"), Triple(Page.RECORDS, "记录", "records")).forEach { (destination, label, icon) ->
+                            NavigationBarItem(
+                                selected = page == destination,
+                                onClick = feedbackClick { go(destination) },
+                                icon = { LineIcon(icon) },
+                                label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                                colors = NavigationBarItemDefaults.colors(indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                                    selectedIconColor = MaterialTheme.colorScheme.primary, selectedTextColor = MaterialTheme.colorScheme.primary),
+                            )
+                        }
                     }
                 }
             }
@@ -187,10 +194,10 @@ fun ManmanApp(viewModel: MainViewModel, shared: IncomingShare? = null, consumeSh
         }
     }
     if (confirmShare && shared != null) AlertDialog(
-        onDismissRequest = { confirmShare = false; consumeSharedContent() },
+        onDismissRequest = feedbackClick { confirmShare = false; consumeSharedContent() },
         title = { Text("收到分享的内容") },
         text = { Text("打开后，当前页面未保存的内容可能丢失。") },
-        confirmButton = { TextButton(onClick = {
+        confirmButton = { FeedbackTextButton(onClick = {
             sharedDraft = shared.text.orEmpty()
             sharedImages = shared.images
             selectedNoticeId = ""
@@ -199,6 +206,6 @@ fun ManmanApp(viewModel: MainViewModel, shared: IncomingShare? = null, consumeSh
             confirmShare = false
             consumeSharedContent()
         }) { Text("打开内容") } },
-        dismissButton = { TextButton(onClick = { confirmShare = false; consumeSharedContent() }) { Text("取消") } },
+        dismissButton = { FeedbackTextButton(onClick = { confirmShare = false; consumeSharedContent() }) { Text("取消") } },
     )
 }

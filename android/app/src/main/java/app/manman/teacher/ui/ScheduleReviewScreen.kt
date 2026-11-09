@@ -18,7 +18,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -63,7 +62,7 @@ fun ScheduleReviewScreen(suggestion: ScheduleSuggestion, state: MainUiState, vie
                     Text("请对照图片检查是否有遗漏；空白和不确定的内容需要补全。", style = MaterialTheme.typography.bodySmall)
                     if (state.scheduleSourceUris.isNotEmpty()) Row {
                         state.scheduleSourceUris.forEachIndexed { index, uri ->
-                            TextButton(onClick = { sourceImage = uri }) { Text("原图 ${index + 1}") }
+                            FeedbackTextButton(onClick = { sourceImage = uri }) { Text("原图 ${index + 1}") }
                         }
                     }
                     if (suggestion.warnings.isNotEmpty()) Text(suggestion.warnings.joinToString("\n"), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
@@ -72,9 +71,9 @@ fun ScheduleReviewScreen(suggestion: ScheduleSuggestion, state: MainUiState, vie
             item {
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     reviewDays.forEachIndexed { index, label ->
-                        FilterChip(selected = day == index + 1, onClick = { day = index + 1 }, label = { Text(label) })
+                        FilterChip(selected = day == index + 1, onClick = feedbackClick { day = index + 1 }, label = { Text(label) })
                     }
-                    if (hasUnknownDay) FilterChip(selected = day == 0, onClick = { day = 0 }, label = { Text("待确认") })
+                    if (hasUnknownDay) FilterChip(selected = day == 0, onClick = feedbackClick { day = 0 }, label = { Text("待确认") })
                 }
             }
             item { SectionHeading("作息时间", "添加") { newSlot = true } }
@@ -152,23 +151,23 @@ fun ScheduleReviewScreen(suggestion: ScheduleSuggestion, state: MainUiState, vie
             editLesson = -1; newLesson = false
         }
     }
-    if (chooseSave) AlertDialog(onDismissRequest = { chooseSave = false }, title = { Text("怎样保存课程与作息？") },
+    if (chooseSave) AlertDialog(onDismissRequest = feedbackClick { chooseSave = false }, title = { Text("怎样保存课程与作息？") },
         text = { Text("合并会保留其他已有内容，并更新同一天同一节次的课程；如果已有节次时间不同，需要先调整或选择替换。") },
-        confirmButton = { TextButton(onClick = { chooseSave = false; save(false) }) { Text("合并保存") } },
+        confirmButton = { FeedbackTextButton(onClick = { chooseSave = false; save(false) }) { Text("合并保存") } },
         dismissButton = { Column {
-            TextButton(onClick = { chooseSave = false; confirmReplace = true }) { Text("替换全部") }
-            TextButton(onClick = { chooseSave = false }) { Text("取消") }
+            FeedbackTextButton(onClick = { chooseSave = false; confirmReplace = true }) { Text("替换全部") }
+            FeedbackTextButton(onClick = { chooseSave = false }) { Text("取消") }
         } })
-    if (confirmReplace) AlertDialog(onDismissRequest = { confirmReplace = false }, title = { Text("替换全部课程与作息？") },
+    if (confirmReplace) AlertDialog(onDismissRequest = feedbackClick { confirmReplace = false }, title = { Text("替换全部课程与作息？") },
         text = { Text("现有课程和作息会被这次结果替换；图片中遗漏的内容不会保留。请确认已核对每一天。") },
-        confirmButton = { TextButton(onClick = { confirmReplace = false; save(true) }) { Text("确认替换") } },
-        dismissButton = { TextButton(onClick = { confirmReplace = false }) { Text("取消") } })
+        confirmButton = { FeedbackTextButton(onClick = { confirmReplace = false; save(true) }) { Text("确认替换") } },
+        dismissButton = { FeedbackTextButton(onClick = { confirmReplace = false }) { Text("取消") } })
 }
 
 @Composable
 private fun ReviewDayPicker(day: Int, onDay: (Int) -> Unit) {
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        reviewDays.forEachIndexed { index, label -> FilterChip(selected = day == index + 1, onClick = { onDay(index + 1) }, label = { Text(label) }) }
+        reviewDays.forEachIndexed { index, label -> FilterChip(selected = day == index + 1, onClick = feedbackClick { onDay(index + 1) }, label = { Text(label) }) }
     }
 }
 
@@ -184,17 +183,17 @@ private fun SlotReviewDialog(item: ScheduleSlotSuggestion, onDismiss: () -> Unit
         val current = value ?: LocalTime.of(8, 0)
         TimePickerDialog(context, { _, hour, minute -> onTime(LocalTime.of(hour, minute)) }, current.hour, current.minute, true).show()
     }
-    AlertDialog(onDismissRequest = onDismiss, title = { Text("修改作息") }, text = {
+    AlertDialog(onDismissRequest = feedbackClick(onDismiss), title = { Text("修改作息") }, text = {
         Column(Modifier.heightIn(max = dialogHeight).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             ReviewDayPicker(day) { day = it }
             QuietTextField(title, { title = it.take(30) }, "节次名称")
-            TextButton(onClick = { pick(start) { start = it } }) { Text("开始时间  ${start ?: "请选择"}") }
-            TextButton(onClick = { pick(end) { end = it } }) { Text("结束时间  ${end ?: "请选择"}") }
+            FeedbackTextButton(onClick = { pick(start) { start = it } }) { Text("开始时间  ${start ?: "请选择"}") }
+            FeedbackTextButton(onClick = { pick(end) { end = it } }) { Text("结束时间  ${end ?: "请选择"}") }
             Text("课程和作息的节次名称需要一致。", style = MaterialTheme.typography.bodySmall)
         }
-    }, confirmButton = { TextButton(onClick = { onSave(ScheduleSlotSuggestion(day, title.trim(), start, end)) },
+    }, confirmButton = { FeedbackTextButton(onClick = { onSave(ScheduleSlotSuggestion(day, title.trim(), start, end)) },
         enabled = day in 1..7 && title.isNotBlank() && start != null && end != null && end!! > start!!) { Text("完成") } },
-        dismissButton = { Row { if (onRemove != null) TextButton(onClick = onRemove) { Text("移除") }; TextButton(onClick = onDismiss) { Text("取消") } } })
+        dismissButton = { Row { if (onRemove != null) FeedbackTextButton(onClick = onRemove) { Text("移除") }; FeedbackTextButton(onClick = onDismiss) { Text("取消") } } })
 }
 
 @Composable
@@ -203,14 +202,14 @@ private fun LessonReviewDialog(item: ScheduleLessonSuggestion, onDismiss: () -> 
     var day by remember { mutableIntStateOf(item.weekday) }
     var slot by remember { mutableStateOf(item.slot) }
     var subject by remember { mutableStateOf(item.subject) }
-    AlertDialog(onDismissRequest = onDismiss, title = { Text("修改课程") }, text = {
+    AlertDialog(onDismissRequest = feedbackClick(onDismiss), title = { Text("修改课程") }, text = {
         Column(Modifier.heightIn(max = dialogHeight).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             ReviewDayPicker(day) { day = it }
             QuietTextField(slot, { slot = it.take(30) }, "节次名称")
             QuietTextField(subject, { subject = it.take(50) }, "课程名称")
             Text("课程和作息的节次名称需要一致。", style = MaterialTheme.typography.bodySmall)
         }
-    }, confirmButton = { TextButton(onClick = { onSave(ScheduleLessonSuggestion(day, slot.trim(), subject.trim())) },
+    }, confirmButton = { FeedbackTextButton(onClick = { onSave(ScheduleLessonSuggestion(day, slot.trim(), subject.trim())) },
         enabled = day in 1..7 && slot.isNotBlank() && subject.isNotBlank()) { Text("完成") } },
-        dismissButton = { Row { if (onRemove != null) TextButton(onClick = onRemove) { Text("移除") }; TextButton(onClick = onDismiss) { Text("取消") } } })
+        dismissButton = { Row { if (onRemove != null) FeedbackTextButton(onClick = onRemove) { Text("移除") }; FeedbackTextButton(onClick = onDismiss) { Text("取消") } } })
 }

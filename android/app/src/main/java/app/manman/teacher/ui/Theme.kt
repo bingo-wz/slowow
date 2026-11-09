@@ -20,39 +20,39 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 private val LightColors = lightColorScheme(
-    primary = Color(0xFF536A5D),
+    primary = Color(0xFF397B40),
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFD8E8DA),
-    onPrimaryContainer = Color(0xFF20392B),
-    secondary = Color(0xFF536A5D),
+    primaryContainer = Color(0xFFDCEEDB),
+    onPrimaryContainer = Color(0xFF174E20),
+    secondary = Color(0xFF397B40),
     onSecondary = Color.White,
     secondaryContainer = Color(0xFFE4ECE3),
     onSecondaryContainer = Color(0xFF273B2F),
-    tertiary = Color(0xFF536A5D),
-    error = Color(0xFF536A5D),
+    tertiary = Color(0xFF397B40),
+    error = Color(0xFF397B40),
     onError = Color.White,
     errorContainer = Color(0xFFE1EAE0),
     onErrorContainer = Color(0xFF20392B),
-    surface = Color(0xFFF8FAF6),
+    surface = Color(0xFFF4F8F4),
     surfaceContainerLowest = Color(0xFFFFFFFF),
-    surfaceContainerLow = Color(0xFFF1F5EF),
-    surfaceContainer = Color(0xFFEAF0E9),
+    surfaceContainerLow = Color(0xFFFFFFFF),
+    surfaceContainer = Color(0xFFEEF3EE),
     surfaceContainerHigh = Color(0xFFE1EAE0),
     surfaceContainerHighest = Color(0xFFD8E2D8),
     onSurface = Color(0xFF19221B),
     onSurfaceVariant = Color(0xFF454F46),
     outline = Color(0xFF768178),
     outlineVariant = Color(0xFFC6D0C5),
-    background = Color(0xFFF8FAF6),
+    background = Color(0xFFF4F8F4),
     onBackground = Color(0xFF19221B),
 )
 
 private val DarkColors = darkColorScheme(
-    primary = Color(0xFFBBD0BE),
-    onPrimary = Color(0xFF263B2D),
-    primaryContainer = Color(0xFF3B5342),
-    onPrimaryContainer = Color(0xFFD7E9D9),
-    secondary = Color(0xFFBBD0BE),
+    primary = Color(0xFFA7D8A4),
+    onPrimary = Color(0xFF143B1A),
+    primaryContainer = Color(0xFF285732),
+    onPrimaryContainer = Color(0xFFCFEDCC),
+    secondary = Color(0xFFA7D8A4),
     onSecondary = Color(0xFF263B2D),
     secondaryContainer = Color(0xFF34473A),
     onSecondaryContainer = Color(0xFFD7E9D9),
@@ -75,7 +75,7 @@ private val DarkColors = darkColorScheme(
     onBackground = Color(0xFFE0EAE0),
 )
 
-private val Heading = TextStyle(fontSize = 22.sp, lineHeight = 30.sp, fontWeight = FontWeight.Medium)
+private val Heading = TextStyle(fontSize = 24.sp, lineHeight = 32.sp, fontWeight = FontWeight.Medium)
 private val Subheading = TextStyle(fontSize = 18.sp, lineHeight = 26.sp, fontWeight = FontWeight.Medium)
 private val Body = TextStyle(fontSize = 16.sp, lineHeight = 24.sp, fontWeight = FontWeight.Normal)
 private val Label = TextStyle(fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Normal)

@@ -1,6 +1,5 @@
 package app.manman.teacher.ui
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,7 +12,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,13 +36,13 @@ fun FontSetting(fonts: AppFonts) {
         Text("${state.selected.title}  ›", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     if (chooseFont) AlertDialog(
-        onDismissRequest = { chooseFont = false; fonts.clearError() },
+        onDismissRequest = feedbackClick { chooseFont = false; fonts.clearError() },
         title = { Text("选择字体") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("字体只影响这部手机，下载后可离线使用。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 AppFont.entries.forEach { font ->
-                    Row(Modifier.fillMaxWidth().clickable(enabled = state.downloading == null) { fonts.select(font) }.padding(vertical = 4.dp),
+                    Row(Modifier.fillMaxWidth().feedbackClickable(enabled = state.downloading == null) { fonts.select(font) }.padding(vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(selected = state.selected == font, onClick = null, enabled = state.downloading == null)
                         Column(Modifier.weight(1f).padding(start = 8.dp)) {
@@ -55,10 +53,10 @@ fun FontSetting(fonts: AppFonts) {
                     }
                 }
                 state.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                TextButton(onClick = { showLicense = true }) { Text("查看字体来源与许可") }
+                FeedbackTextButton(onClick = { showLicense = true }) { Text("查看字体来源与许可") }
             }
         },
-        confirmButton = { TextButton(onClick = { chooseFont = false; fonts.clearError() }) { Text("完成") } },
+        confirmButton = { FeedbackTextButton(onClick = { chooseFont = false; fonts.clearError() }) { Text("完成") } },
     )
     if (showLicense) {
         val text = remember {
@@ -66,9 +64,9 @@ fun FontSetting(fonts: AppFonts) {
                 context.assets.open("font-licenses/$name").bufferedReader().use { it.readText() }
             }
         }
-        AlertDialog(onDismissRequest = { showLicense = false }, title = { Text("字体来源与许可") },
+        AlertDialog(onDismissRequest = feedbackClick { showLicense = false }, title = { Text("字体来源与许可") },
             text = { Text("马善政楷书、站酷快乐体、龙藏体均采用 SIL Open Font License 1.1。\n\n$text",
                 Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState()), style = MaterialTheme.typography.bodySmall) },
-            confirmButton = { TextButton(onClick = { showLicense = false }) { Text("关闭") } })
+            confirmButton = { FeedbackTextButton(onClick = { showLicense = false }) { Text("关闭") } })
     }
 }

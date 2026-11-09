@@ -5,7 +5,6 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,7 +25,6 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -91,8 +89,8 @@ fun MarkingScreen(state: MainUiState, viewModel: MainViewModel, existing: Markin
                     Text("$first $firstCount 人 · $second ${students.size - firstCount} 人", style = MaterialTheme.typography.titleMedium)
                     Text("点姓名切换状态。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     FlowRow {
-                        TextButton(onClick = { secondIds = arrayListOf() }) { Text("全部设为$first") }
-                        TextButton(onClick = { secondIds = ArrayList(students.map(MarkingStudent::studentId)) }) { Text("全部设为$second") }
+                        FeedbackTextButton(onClick = { secondIds = arrayListOf() }) { Text("全部设为$first") }
+                        FeedbackTextButton(onClick = { secondIds = ArrayList(students.map(MarkingStudent::studentId)) }) { Text("全部设为$second") }
                     }
                   }
                 }
@@ -103,7 +101,7 @@ fun MarkingScreen(state: MainUiState, viewModel: MainViewModel, existing: Markin
                         Modifier.fillMaxWidth().heightIn(min = 88.dp)
                             .background(if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLow, MaterialTheme.shapes.medium)
                             .semantics(mergeDescendants = true) { contentDescription = "${student.name}，$label，点击切换状态" }
-                            .clickable {
+                            .feedbackClickable {
                                 secondIds = ArrayList(if (selected) selectedSecond + student.studentId else selectedSecond - student.studentId)
                             }
                             .padding(8.dp),
@@ -160,10 +158,10 @@ fun MarkingDetailScreen(record: MarkingRecord, state: MainUiState, viewModel: Ma
         }
     }
     if (confirmDelete) AlertDialog(
-        onDismissRequest = { confirmDelete = false }, title = { Text("删除这条班级标记？") },
+        onDismissRequest = feedbackClick { confirmDelete = false }, title = { Text("删除这条班级标记？") },
         text = { Text("删除后，这条记录也会从已同步的设备中移除。") },
-        confirmButton = { TextButton(onClick = { confirmDelete = false; viewModel.deleteMarking(record, back) }) { Text("删除") } },
-        dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("取消") } },
+        confirmButton = { FeedbackTextButton(onClick = { confirmDelete = false; viewModel.deleteMarking(record, back) }) { Text("删除") } },
+        dismissButton = { FeedbackTextButton(onClick = { confirmDelete = false }) { Text("取消") } },
     )
 }
 

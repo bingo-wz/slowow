@@ -31,8 +31,8 @@ android {
         applicationId = "app.manman.teacher"
         minSdk = 26
         targetSdk = 36
-        versionCode = 9
-        versionName = "0.7.1"
+        versionCode = 10
+        versionName = "0.8.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "SYNC_BASE_URL", "\"$syncEndpoint\"")
         buildConfigField("String", "AUTH_BASE_URL", "\"$authEndpoint\"")

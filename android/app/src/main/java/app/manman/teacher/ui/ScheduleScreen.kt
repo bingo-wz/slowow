@@ -23,7 +23,6 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
@@ -84,19 +83,19 @@ fun ScheduleScreen(state: MainUiState, viewModel: MainViewModel, back: () -> Uni
                 val progress = state.scheduleProgress
                 if (progress != null) {
                     ScheduleProgress(progress)
-                    TextButton(onClick = { confirmStop = true }) { Text("停止识别") }
+                    FeedbackTextButton(onClick = { confirmStop = true }) { Text("停止识别") }
                 } else {
                     if (images.isNotEmpty()) Text("已选择 ${images.size} 张图片", style = MaterialTheme.typography.bodySmall)
-                    if (state.scheduleSuggestion != null) TextButton(onClick = onReview) { Text("继续核对识别结果") }
+                    if (state.scheduleSuggestion != null) FeedbackTextButton(onClick = onReview) { Text("继续核对识别结果") }
                     Row {
-                        TextButton(onClick = { choose(images.isNotEmpty()) }, enabled = !state.busy) { Text(if (images.isEmpty()) "选择图片" else "重新选择") }
-                        if (images.isNotEmpty()) TextButton(onClick = { confirmRecognition = true }, enabled = !state.busy) { Text("开始识别") }
+                        FeedbackTextButton(onClick = { choose(images.isNotEmpty()) }, enabled = !state.busy) { Text(if (images.isEmpty()) "选择图片" else "重新选择") }
+                        if (images.isNotEmpty()) FeedbackTextButton(onClick = { confirmRecognition = true }, enabled = !state.busy) { Text("开始识别") }
                     }
                 }
             }
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 weekNames.forEachIndexed { index, label ->
-                    FilterChip(selected = weekday == index + 1, onClick = { weekday = index + 1 }, label = { Text(label) }, border = null,
+                    FilterChip(selected = weekday == index + 1, onClick = feedbackClick { weekday = index + 1 }, label = { Text(label) }, border = null,
                         colors = FilterChipDefaults.filterChipColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
                             selectedContainerColor = MaterialTheme.colorScheme.primaryContainer))
                 }
@@ -126,22 +125,22 @@ fun ScheduleScreen(state: MainUiState, viewModel: MainViewModel, back: () -> Uni
         }
     }
     if (confirmRecognition && images.isNotEmpty()) AlertDialog(
-        onDismissRequest = { confirmRecognition = false },
+        onDismissRequest = feedbackClick { confirmRecognition = false },
         title = { Text("发送图片进行识别？") },
         text = { Text("已选择 ${images.size} 张图片。图片将发送给小米 MiMo，可能产生 API 费用；图片中的姓名等内容也会一并发送。识别后请核对，再决定是否保存。每张不超过 8 MB，合计不超过 12 MB。" + if (state.scheduleSuggestion != null) "重新识别会替换上次尚未保存的识别结果。" else "") },
-        confirmButton = { TextButton(onClick = {
+        confirmButton = { FeedbackTextButton(onClick = {
             confirmRecognition = false
             viewModel.recognizeSchedule(images.map(Uri::parse), onReview)
         }) { Text("确认发送") } },
         dismissButton = { Column {
-            if (images.size < 2) TextButton(onClick = { confirmRecognition = false; choose(false) }) { Text("再添加一张") }
-            TextButton(onClick = { confirmRecognition = false }) { Text("取消") }
+            if (images.size < 2) FeedbackTextButton(onClick = { confirmRecognition = false; choose(false) }) { Text("再添加一张") }
+            FeedbackTextButton(onClick = { confirmRecognition = false }) { Text("取消") }
         } },
     )
-    if (confirmStop) AlertDialog(onDismissRequest = { confirmStop = false }, title = { Text("停止识别？") },
+    if (confirmStop) AlertDialog(onDismissRequest = feedbackClick { confirmStop = false }, title = { Text("停止识别？") },
         text = { Text("本次结果不会保存；已发送给模型的请求可能已产生费用。") },
-        confirmButton = { TextButton(onClick = { confirmStop = false; viewModel.cancelScheduleRecognition() }) { Text("停止") } },
-        dismissButton = { TextButton(onClick = { confirmStop = false }) { Text("继续识别") } })
+        confirmButton = { FeedbackTextButton(onClick = { confirmStop = false; viewModel.cancelScheduleRecognition() }) { Text("停止") } },
+        dismissButton = { FeedbackTextButton(onClick = { confirmStop = false }) { Text("继续识别") } })
     if (newSlot || editSlot != null) {
         TimeSlotDialog(editSlot, onDismiss = { newSlot = false; editSlot = null }) { slot ->
             viewModel.saveTimeSlot(slot) { newSlot = false; editSlot = null }
@@ -151,17 +150,17 @@ fun ScheduleScreen(state: MainUiState, viewModel: MainViewModel, back: () -> Uni
         val lesson = state.lessons.firstOrNull { it.weekday == weekday && it.slotId == slot.id }
         var subject by remember(slot.id, weekday) { mutableStateOf(lesson?.subject.orEmpty()) }
         AlertDialog(
-            onDismissRequest = { lessonSlot = null },
+            onDismissRequest = feedbackClick { lessonSlot = null },
             title = { Text("${weekNames[weekday - 1]} · ${slot.title}") },
             text = { QuietTextField(subject, { subject = it.take(50) }, "课程名称") },
-            confirmButton = { TextButton(onClick = {
+            confirmButton = { FeedbackTextButton(onClick = {
                 val id = lesson?.id ?: UUID.nameUUIDFromBytes("lesson:$weekday:${slot.id}".toByteArray(Charsets.UTF_8)).toString()
                 viewModel.saveLesson(Lesson(id, weekday, slot.id, subject)) { lessonSlot = null }
             }, enabled = subject.isNotBlank() && !state.busy) { Text("保存") } },
             dismissButton = {
                 Row {
-                    if (lesson != null) TextButton(onClick = { viewModel.deleteLesson(lesson) { lessonSlot = null } }) { Text("移除课程") }
-                    TextButton(onClick = { lessonSlot = null }) { Text("取消") }
+                    if (lesson != null) FeedbackTextButton(onClick = { viewModel.deleteLesson(lesson) { lessonSlot = null } }) { Text("移除课程") }
+                    FeedbackTextButton(onClick = { lessonSlot = null }) { Text("取消") }
                 }
             },
         )
@@ -204,18 +203,18 @@ private fun TimeSlotDialog(existing: TimeSlot?, onDismiss: () -> Unit, onSave: (
         TimePickerDialog(context, { _, hour, minute -> onSelected(LocalTime.of(hour, minute)) }, current.hour, current.minute, true).show()
     }
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = feedbackClick(onDismiss),
         title = { Text(if (existing == null) "添加节次" else "调整作息时间") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 QuietTextField(title, { title = it.take(30) }, "节次名称，例如第一节")
-                TextButton(onClick = { chooseTime(start) { start = it } }) { Text("开始时间  $start") }
-                TextButton(onClick = { chooseTime(end) { end = it } }) { Text("结束时间  $end") }
+                FeedbackTextButton(onClick = { chooseTime(start) { start = it } }) { Text("开始时间  $start") }
+                FeedbackTextButton(onClick = { chooseTime(end) { end = it } }) { Text("结束时间  $end") }
                 if (end <= start) Text("结束时间应晚于开始时间。", style = MaterialTheme.typography.bodySmall)
             }
         },
-        confirmButton = { TextButton(onClick = { onSave(TimeSlot(existing?.id ?: UUID.randomUUID().toString(), title, start, end, existing?.weekdays ?: emptySet())) },
+        confirmButton = { FeedbackTextButton(onClick = { onSave(TimeSlot(existing?.id ?: UUID.randomUUID().toString(), title, start, end, existing?.weekdays ?: emptySet())) },
             enabled = title.isNotBlank() && end > start) { Text("保存") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+        dismissButton = { FeedbackTextButton(onClick = onDismiss) { Text("取消") } },
     )
 }

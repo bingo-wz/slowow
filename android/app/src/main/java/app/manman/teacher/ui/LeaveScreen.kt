@@ -70,7 +70,7 @@ fun LeaveScreen(state: MainUiState, viewModel: MainViewModel, existing: Leave?, 
                 Text("请假时段", style = MaterialTheme.typography.titleMedium)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf(LeavePeriod.ALL_DAY to "全天", LeavePeriod.MORNING to "上午", LeavePeriod.AFTERNOON to "下午").forEach { (period, label) ->
-                        FilterChip(selected = periodName == period.name, onClick = { periodName = period.name }, label = { Text(label) }, border = null,
+                        FilterChip(selected = periodName == period.name, onClick = feedbackClick { periodName = period.name }, label = { Text(label) }, border = null,
                             colors = FilterChipDefaults.filterChipColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
                                 selectedContainerColor = MaterialTheme.colorScheme.primaryContainer))
                     }

@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -74,7 +73,7 @@ fun AttachmentImage(state: MainUiState, imageId: String, modifier: Modifier = Mo
                 }.graphicsLayer(scaleX = scale, scaleY = scale, translationX = offset.x, translationY = offset.y))
             failed || image == null -> Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("暂时无法查看原图，请检查网络和同步状态。", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                TextButton(onClick = { retry++ }) { Text("重试") }
+                FeedbackTextButton(onClick = { retry++ }) { Text("重试") }
             }
             else -> CircularProgressIndicator()
         }
