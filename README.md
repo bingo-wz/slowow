@@ -5,6 +5,7 @@
 - [项目上下文](contexts/context.md)
 - [产品与技术方案](specs/慢慢-产品与技术方案.md)
 - [开发任务](specs/开发任务.md)
+- [Todo 待办审查与渐进优化方案](specs/Todo待办审查与渐进优化方案.md)
 - [Android 开发环境](specs/Android开发环境.md)
 - [主要开源依赖](specs/开源依赖说明.md)
 - [数据备份与恢复](specs/数据备份与恢复.md)
