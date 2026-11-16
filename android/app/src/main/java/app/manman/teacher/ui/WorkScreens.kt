@@ -8,6 +8,7 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -23,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -44,14 +46,19 @@ import java.util.UUID
 
 private val momentFormat = DateTimeFormatter.ofPattern("M月d日 HH:mm")
 private fun formatMoment(value: Instant?): String = value?.atZone(AppTime.zone)?.format(momentFormat) ?: "未设置"
-private fun taskDue(task: WorkTask): String = task.dueAt?.let(::formatMoment) ?: task.dueDate?.toString()?.plus("（仅日期）") ?: "未设置时间"
+private fun taskDue(task: WorkTask): String = task.dueAt?.let { start ->
+    val ending = task.endAt?.atZone(AppTime.zone)?.format(DateTimeFormatter.ofPattern("HH:mm"))
+    formatMoment(start) + if (ending == null) "" else "—$ending"
+} ?: task.dueDate?.toString()?.plus("（仅日期）") ?: "未设置时间"
 @Composable
 fun WorkScreen(state: MainUiState, viewModel: MainViewModel, showNotices: Boolean, setShowNotices: (Boolean) -> Unit,
-    back: () -> Unit, onNotice: (String) -> Unit, onTask: (String) -> Unit, onAddNotice: () -> Unit, onAddTask: () -> Unit) {
+    back: () -> Unit, onNotice: (String) -> Unit, onTask: (String) -> Unit, onAddNotice: () -> Unit, onAddTask: () -> Unit,
+    onRoutines: () -> Unit) {
     Column(Modifier.fillMaxSize()) {
         PageHeader(if (showNotices) "学校通知" else "全部待办", back = back, action = {
             Row {
                 ActionIcon(if (showNotices) "list" else "notice", if (showNotices) "全部待办" else "学校通知", { setShowNotices(!showNotices) })
+                if (!showNotices) ActionIcon("repeat", "固定安排", onRoutines)
                 ActionIcon("plus", if (showNotices) "添加通知" else "新建待办", if (showNotices) onAddNotice else onAddTask)
             }
         })
@@ -175,7 +182,8 @@ fun NoticeDetailScreen(notice: Notice, state: MainUiState, back: () -> Unit, onE
 }
 
 @Composable
-fun TaskDetailScreen(task: WorkTask, state: MainUiState, viewModel: MainViewModel, back: () -> Unit, onEdit: () -> Unit, onNotice: (String) -> Unit) {
+fun TaskDetailScreen(task: WorkTask, state: MainUiState, viewModel: MainViewModel, back: () -> Unit, onEdit: () -> Unit,
+    onNotice: (String) -> Unit, onRoutines: () -> Unit, onMealAbsences: () -> Unit) {
     val notice = state.notices.firstOrNull { it.id == task.noticeId }
     var confirmDelete by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize()) {
@@ -186,8 +194,10 @@ fun TaskDetailScreen(task: WorkTask, state: MainUiState, viewModel: MainViewMode
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Block {
                 Text(task.title, style = MaterialTheme.typography.titleMedium)
-                Text(if (task.done) "已完成" else "待处理", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                key(task.done) { Text(if (task.done) "已完成" else "待处理", color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 Text("时间：${taskDue(task)}", style = MaterialTheme.typography.bodySmall)
+                if (task.autoCompleted) Text("已按时间自动完成", style = MaterialTheme.typography.bodySmall)
+                if (task.timingNeedsReview) Text("时间段需要重新核对", style = MaterialTheme.typography.bodySmall)
                 Text("提醒：${formatMoment(task.remindAt)}", style = MaterialTheme.typography.bodySmall)
             }
             if (notice != null) Block(onClick = { onNotice(notice.id) }) {
@@ -195,9 +205,19 @@ fun TaskDetailScreen(task: WorkTask, state: MainUiState, viewModel: MainViewMode
                 Text(notice.title)
                 Text("查看原文  ›", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
             }
+            if (task.showMealList) Block(onClick = onMealAbsences) {
+                Text("不在校用餐名单", style = MaterialTheme.typography.bodyLarge)
+                Text("查看这一天的名单  ›", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+            }
+            if (task.routineId != null && state.routines.any { it.id == task.routineId }) Block(onClick = onRoutines) {
+                Text("每周固定安排", style = MaterialTheme.typography.bodyLarge)
+                Text("管理固定安排  ›", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+            }
         }
-        MainButton(if (task.done) "标记为待处理" else "完成待办", { viewModel.saveTask(task.copy(done = !task.done)) },
-            enabled = !state.busy, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp))
+        key(task.done) {
+            MainButton(if (task.done) "标记为待处理" else "完成待办", { viewModel.setTaskDone(task.id, !task.done) },
+                enabled = !state.busy, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp))
+        }
         Spacer(Modifier.height(16.dp))
     }
     if (confirmDelete) androidx.compose.material3.AlertDialog(
@@ -209,8 +229,20 @@ fun TaskDetailScreen(task: WorkTask, state: MainUiState, viewModel: MainViewMode
 }
 
 @Composable
-fun TaskEditorScreen(state: MainUiState, viewModel: MainViewModel, existing: WorkTask?, noticeId: String?, suggestion: NoticeSuggestionItem?,
+fun TaskEditorScreen(state: MainUiState, viewModel: MainViewModel, current: WorkTask?, editingId: String?, noticeId: String?, suggestion: NoticeSuggestionItem?,
     back: () -> Unit, onSaved: () -> Unit = back, defaultDate: LocalDate? = null) {
+    var baseline by rememberSaveable(editingId, suggestion?.title) { mutableStateOf(current) }
+    LaunchedEffect(editingId, current) {
+        if (editingId != null && baseline == null && current != null) baseline = current
+    }
+    if (editingId != null && baseline == null) {
+        Column(Modifier.fillMaxSize()) {
+            PageHeader("编辑待办", back = back)
+            Text("正在读取待办；如果已在其他设备删除，请返回查看。", Modifier.padding(16.dp))
+        }
+        return
+    }
+    val existing = baseline
     val context = LocalContext.current
     val initialDue = existing?.dueAt ?: if (suggestion?.date != null && suggestion.time != null) {
         suggestion.date.atTime(suggestion.time).atZone(AppTime.zone).toInstant()
@@ -219,10 +251,14 @@ fun TaskEditorScreen(state: MainUiState, viewModel: MainViewModel, existing: Wor
     var title by rememberSaveable(existing?.id, suggestion?.title) { mutableStateOf(existing?.title ?: suggestion?.title.orEmpty()) }
     var due by rememberSaveable(existing?.id, suggestion?.title) { mutableStateOf(initialDue?.toString().orEmpty()) }
     var dueDate by rememberSaveable(existing?.id, suggestion?.title) { mutableStateOf(initialDate?.toString().orEmpty()) }
+    var end by rememberSaveable(existing?.id, suggestion?.title) { mutableStateOf(existing?.endAt?.toString().orEmpty()) }
+    var needsTimeReview by rememberSaveable(existing?.id, suggestion?.title) { mutableStateOf(existing?.timingNeedsReview == true) }
     var reminder by rememberSaveable(existing?.id, suggestion?.title) { mutableStateOf(existing?.remindAt?.toString().orEmpty()) }
+    var timeError by remember { mutableStateOf<String?>(null) }
     var confirmBack by remember { mutableStateOf(false) }
     val dirty = suggestion != null || title != existing?.title.orEmpty() || due != existing?.dueAt?.toString().orEmpty() ||
-        dueDate != initialDate?.toString().orEmpty() || reminder != existing?.remindAt?.toString().orEmpty()
+        dueDate != initialDate?.toString().orEmpty() || end != existing?.endAt?.toString().orEmpty() ||
+        needsTimeReview != (existing?.timingNeedsReview == true) || reminder != existing?.remindAt?.toString().orEmpty()
     fun leave() { if (dirty) confirmBack = true else back() }
     androidx.activity.compose.BackHandler { leave() }
     val notice = state.notices.firstOrNull { it.id == (existing?.noticeId ?: noticeId) }
@@ -236,6 +272,32 @@ fun TaskEditorScreen(state: MainUiState, viewModel: MainViewModel, existing: Wor
             }, current.hour, current.minute, true).show()
         }, current.year, current.monthValue - 1, current.dayOfMonth).show()
     }
+    fun chooseRange() {
+        val initial = dueDate.takeIf(String::isNotBlank)?.let(LocalDate::parse)
+            ?: due.takeIf(String::isNotBlank)?.let(Instant::parse)?.atZone(AppTime.zone)?.toLocalDate()
+            ?: LocalDate.now(AppTime.zone)
+        val start = due.takeIf(String::isNotBlank)?.let(Instant::parse)?.atZone(AppTime.zone)?.toLocalTime()
+            ?: java.time.LocalTime.of(8, 0)
+        val finish = end.takeIf(String::isNotBlank)?.let(Instant::parse)?.atZone(AppTime.zone)?.toLocalTime()
+            ?: start.plusMinutes(45)
+        DatePickerDialog(context, { _, year, month, date ->
+            val day = LocalDate.of(year, month + 1, date)
+            TimePickerDialog(context, { _, startHour, startMinute ->
+                val selectedStart = java.time.LocalTime.of(startHour, startMinute)
+                TimePickerDialog(context, { _, endHour, endMinute ->
+                    val selectedEnd = java.time.LocalTime.of(endHour, endMinute)
+                    if (selectedEnd <= selectedStart) timeError = "结束时间应晚于开始时间。"
+                    else {
+                        dueDate = day.toString()
+                        due = day.atTime(selectedStart).atZone(AppTime.zone).toInstant().toString()
+                        end = day.atTime(selectedEnd).atZone(AppTime.zone).toInstant().toString()
+                        needsTimeReview = false
+                        timeError = null
+                    }
+                }, finish.hour, finish.minute, true).show()
+            }, start.hour, start.minute, true).show()
+        }, initial.year, initial.monthValue - 1, initial.dayOfMonth).show()
+    }
     Column(Modifier.fillMaxSize()) {
         PageHeader(if (existing == null) "新建待办" else "编辑待办", back = ::leave)
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -243,20 +305,36 @@ fun TaskEditorScreen(state: MainUiState, viewModel: MainViewModel, existing: Wor
             if (notice != null) Block { Text("来自通知：${notice.title}", style = MaterialTheme.typography.bodySmall) }
             Block {
                 Text("事项时间", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row {
-                    val label = if (due.isNotEmpty()) formatMoment(Instant.parse(due)) else dueDate.takeIf(String::isNotBlank)?.plus("（仅日期）") ?: "未设置"
-                    FeedbackTextButton(onClick = { chooseMoment(due) { due = it; dueDate = Instant.parse(it).atZone(AppTime.zone).toLocalDate().toString() } }) { Text(label + "  ›") }
-                    if (due.isNotEmpty() || dueDate.isNotEmpty()) FeedbackTextButton(onClick = { due = ""; dueDate = "" }) { Text("清除") }
+                FlowRow {
+                    val startLabel = if (due.isNotEmpty()) formatMoment(Instant.parse(due)) else dueDate.takeIf(String::isNotBlank)?.plus("（仅日期）") ?: "未设置"
+                    val label = startLabel + end.takeIf(String::isNotBlank)?.let {
+                        "—" + Instant.parse(it).atZone(AppTime.zone).format(DateTimeFormatter.ofPattern("HH:mm"))
+                    }.orEmpty()
+                    FeedbackTextButton(onClick = {
+                        if (end.isNotEmpty() || needsTimeReview) chooseRange()
+                        else chooseMoment(due) { due = it; dueDate = Instant.parse(it).atZone(AppTime.zone).toLocalDate().toString() }
+                    }) { Text(label + "  ›") }
+                    if (due.isNotEmpty() || dueDate.isNotEmpty() || needsTimeReview) FeedbackTextButton(onClick = {
+                        due = ""; dueDate = ""; end = ""; needsTimeReview = false; timeError = null
+                    }) { Text("清除") }
                 }
+                FeedbackTextButton(onClick = ::chooseRange) { Text(if (end.isEmpty()) "设置时间段" else "调整时间段") }
                 FeedbackTextButton(onClick = {
                     val current = dueDate.takeIf(String::isNotBlank)?.let(LocalDate::parse) ?: LocalDate.now(AppTime.zone)
-                    DatePickerDialog(context, { _, year, month, day -> dueDate = LocalDate.of(year, month + 1, day).toString(); due = "" },
+                    DatePickerDialog(context, { _, year, month, day ->
+                        dueDate = LocalDate.of(year, month + 1, day).toString(); due = ""; end = ""; needsTimeReview = false; timeError = null
+                    },
                         current.year, current.monthValue - 1, current.dayOfMonth).show()
                 }) { Text("只设置日期") }
+                if (end.isNotEmpty()) Text("结束后下次打开应用会自动完成。", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (needsTimeReview) Text("这条待办的时间在其他设备上发生变化，请重新设置或清除时间段。",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                timeError?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             }
             Block {
                 Text("提醒时间", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row {
+                FlowRow {
                     FeedbackTextButton(onClick = { chooseMoment(reminder) { reminder = it } }) { Text(formatMoment(reminder.takeIf(String::isNotBlank)?.let(Instant::parse)) + "  ›") }
                     if (reminder.isNotEmpty()) FeedbackTextButton(onClick = { reminder = "" }) { Text("清除") }
                 }
@@ -266,12 +344,19 @@ fun TaskEditorScreen(state: MainUiState, viewModel: MainViewModel, existing: Wor
             }
         }
         MainButton("保存待办", {
-            val updated = WorkTask(existing?.id ?: UUID.randomUUID().toString(), title, existing?.noticeId ?: noticeId,
-                due.takeIf(String::isNotBlank)?.let(Instant::parse), reminder.takeIf(String::isNotBlank)?.let(Instant::parse),
-                existing?.done ?: false, existing?.createdAt ?: Instant.now(), dueDate.takeIf(String::isNotBlank)?.let(LocalDate::parse))
+            val changedTime = due != existing?.dueAt?.toString().orEmpty() || end != existing?.endAt?.toString().orEmpty() ||
+                dueDate != existing?.dueDate?.toString().orEmpty() || existing?.timingNeedsReview == true
+            val updated = (existing ?: WorkTask(UUID.randomUUID().toString(), "", noticeId, null, null, false, Instant.now())).copy(
+                title = title, dueAt = due.takeIf(String::isNotBlank)?.let(Instant::parse),
+                remindAt = reminder.takeIf(String::isNotBlank)?.let(Instant::parse),
+                dueDate = dueDate.takeIf(String::isNotBlank)?.let(LocalDate::parse),
+                endAt = end.takeIf(String::isNotBlank)?.let(Instant::parse), timingNeedsReview = needsTimeReview,
+                routineException = existing?.routineException == true || (existing?.routineId != null &&
+                    (changedTime || title.trim() != existing.title)),
+                autoCompletionSuppressed = if (changedTime) false else existing?.autoCompletionSuppressed == true)
             val order = existing?.sortOrder?.takeIf { app.manman.teacher.domain.TaskOrdering.date(updated) == app.manman.teacher.domain.TaskOrdering.date(existing) }
-            viewModel.saveTask(updated.copy(sortOrder = order), onSaved)
-        }, enabled = title.isNotBlank() && !state.busy, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp))
+            viewModel.saveTask(updated.copy(sortOrder = order), existing, onSaved)
+        }, enabled = title.isNotBlank() && !state.busy && !needsTimeReview, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp))
         Spacer(Modifier.height(16.dp))
     }
     if (confirmBack) androidx.compose.material3.AlertDialog(

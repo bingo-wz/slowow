@@ -8,6 +8,7 @@ import org.json.JSONObject
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
+import java.util.UUID
 
 object RecordKind {
     const val STUDENT = "student"
@@ -74,9 +75,114 @@ data class WorkTask(
     val createdAt: Instant,
     val dueDate: LocalDate? = null,
     val sortOrder: Long? = null,
+    val endAt: Instant? = null,
+    val routineId: String? = null,
+    val routineDate: LocalDate? = null,
+    val routineException: Boolean = false,
+    val removedByRule: Boolean = false,
+    val autoCompletionSuppressed: Boolean = false,
+    val autoCompleted: Boolean = false,
+    val showMealList: Boolean = false,
+    val timingNeedsReview: Boolean = false,
+) : java.io.Serializable
+
+data class RoutineVersion(
+    val effectiveFrom: LocalDate,
+    val title: String,
+    val weekdays: Set<Int>,
+    val start: LocalTime? = null,
+    val end: LocalTime? = null,
+    val enabled: Boolean = true,
+    val showMealList: Boolean = false,
+) : java.io.Serializable
+
+data class RoutineRule(val id: String, val createdAt: Instant, val versions: List<RoutineVersion>) : java.io.Serializable {
+    val current: RoutineVersion get() = versions.maxBy(RoutineVersion::effectiveFrom)
+}
+
+data class TaskMetadata(
+    val taskId: String,
+    val expectedTitle: String?,
+    val expectedDueAt: Instant?,
+    val expectedDueDate: LocalDate?,
+    val expectedDone: Boolean,
+    val endAt: Instant? = null,
+    val routineId: String? = null,
+    val routineDate: LocalDate? = null,
+    val routineException: Boolean = false,
+    val removedByRule: Boolean = false,
+    val autoCompletionSuppressed: Boolean = false,
+    val autoCompleted: Boolean = false,
+    val showMealList: Boolean = false,
 )
 
 object RecordCodec {
+    const val ROUTINE_PREFIX = "routine_"
+    const val TASK_METADATA_PREFIX = "taskmeta_"
+
+    fun routineRecordId(id: String): String = ROUTINE_PREFIX + id
+    fun taskMetadataId(id: String): String = TASK_METADATA_PREFIX +
+        UUID.nameUUIDFromBytes("taskmeta:$id".toByteArray(Charsets.UTF_8)).toString()
+
+    fun routine(value: RoutineRule): String = JSONObject().put("type", "routine_v1").put("id", value.id)
+        .put("createdAt", value.createdAt.toString()).put("versions", JSONArray().apply {
+            value.versions.sortedBy(RoutineVersion::effectiveFrom).forEach { version ->
+                put(JSONObject().put("effectiveFrom", version.effectiveFrom.toString()).put("title", version.title)
+                    .put("weekdays", JSONArray(version.weekdays.sorted())).put("start", version.start?.toString() ?: JSONObject.NULL)
+                    .put("end", version.end?.toString() ?: JSONObject.NULL).put("enabled", version.enabled)
+                    .put("showMealList", version.showMealList))
+            }
+        }).toString()
+
+    fun routine(record: LocalRecord): RoutineRule = JSONObject(record.payload).let { json ->
+        require(json.getString("type") == "routine_v1")
+        val versions = json.getJSONArray("versions")
+        RoutineRule(json.getString("id"), Instant.parse(json.getString("createdAt")), (0 until versions.length()).map { index ->
+            val version = versions.getJSONObject(index)
+            val weekdays = version.getJSONArray("weekdays")
+            RoutineVersion(LocalDate.parse(version.getString("effectiveFrom")), version.getString("title"),
+                (0 until weekdays.length()).map(weekdays::getInt).toSet(),
+                if (version.isNull("start")) null else LocalTime.parse(version.getString("start")),
+                if (version.isNull("end")) null else LocalTime.parse(version.getString("end")),
+                version.optBoolean("enabled", true), version.optBoolean("showMealList", false))
+        }.also { require(it.isNotEmpty()) })
+    }
+
+    fun taskMetadata(value: TaskMetadata): String = JSONObject().put("type", "task_metadata_v1")
+        .put("taskId", value.taskId).put("expectedTitle", value.expectedTitle ?: JSONObject.NULL)
+        .put("expectedDueAt", value.expectedDueAt?.toString() ?: JSONObject.NULL)
+        .put("expectedDueDate", value.expectedDueDate?.toString() ?: JSONObject.NULL).put("expectedDone", value.expectedDone)
+        .put("endAt", value.endAt?.toString() ?: JSONObject.NULL).put("routineId", value.routineId ?: JSONObject.NULL)
+        .put("routineDate", value.routineDate?.toString() ?: JSONObject.NULL).put("routineException", value.routineException)
+        .put("removedByRule", value.removedByRule).put("autoCompletionSuppressed", value.autoCompletionSuppressed)
+        .put("autoCompleted", value.autoCompleted).put("showMealList", value.showMealList).toString()
+
+    fun taskMetadata(record: LocalRecord): TaskMetadata = JSONObject(record.payload).let { json ->
+        require(json.getString("type") == "task_metadata_v1")
+        fun optional(key: String) = if (json.isNull(key)) null else json.getString(key)
+        TaskMetadata(json.getString("taskId"), optional("expectedTitle"), optional("expectedDueAt")?.let(Instant::parse),
+            optional("expectedDueDate")?.let(LocalDate::parse), json.optBoolean("expectedDone", false),
+            optional("endAt")?.let(Instant::parse), optional("routineId"), optional("routineDate")?.let(LocalDate::parse),
+            json.optBoolean("routineException", false), json.optBoolean("removedByRule", false),
+            json.optBoolean("autoCompletionSuppressed", false), json.optBoolean("autoCompleted", false),
+            json.optBoolean("showMealList", false))
+    }
+
+    fun metadataFor(task: WorkTask): TaskMetadata = TaskMetadata(task.id, task.title, task.dueAt, task.dueDate, task.done, task.endAt,
+        task.routineId, task.routineDate, task.routineException, task.removedByRule, task.autoCompletionSuppressed,
+        task.autoCompleted, task.showMealList)
+
+    fun withMetadata(task: WorkTask, metadata: TaskMetadata?): WorkTask {
+        if (metadata == null || metadata.taskId != task.id) return task
+        val timeMatches = metadata.expectedDueAt == task.dueAt && metadata.expectedDueDate == task.dueDate
+        return task.copy(endAt = metadata.endAt.takeIf { timeMatches }, routineId = metadata.routineId,
+            routineDate = metadata.routineDate, routineException = metadata.routineException ||
+                (metadata.routineId != null && (!timeMatches || (metadata.expectedTitle != null && metadata.expectedTitle != task.title))),
+            removedByRule = metadata.removedByRule,
+            autoCompletionSuppressed = metadata.autoCompletionSuppressed || (metadata.expectedDone && !task.done),
+            autoCompleted = task.done && metadata.expectedDone && metadata.autoCompleted,
+            showMealList = metadata.showMealList, timingNeedsReview = !timeMatches && metadata.endAt != null)
+    }
     fun menuWeek(value: MenuWeek): String = JSONObject().put("start", value.start.toString())
         .put("attachmentId", value.attachmentId).toString()
 

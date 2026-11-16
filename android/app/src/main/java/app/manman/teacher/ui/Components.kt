@@ -140,6 +140,14 @@ fun LineIcon(name: String, modifier: Modifier = Modifier, color: Color = LocalCo
         fun line(x1: Float, y1: Float, x2: Float, y2: Float) =
             drawLine(color, Offset(x1 * unit, y1 * unit), Offset(x2 * unit, y2 * unit), stroke, StrokeCap.Round)
         when (name) {
+            "clock" -> {
+                drawCircle(color, 8f * unit, Offset(12f * unit, 12f * unit), style = Stroke(stroke))
+                line(12f, 7f, 12f, 12f); line(12f, 12f, 15f, 14f)
+            }
+            "repeat" -> {
+                line(4f, 8f, 19f, 8f); line(19f, 8f, 16f, 5f); line(19f, 8f, 16f, 11f)
+                line(20f, 16f, 5f, 16f); line(5f, 16f, 8f, 13f); line(5f, 16f, 8f, 19f)
+            }
             "home" -> {
                 val roof = Path().apply { moveTo(3f * unit, 11f * unit); lineTo(12f * unit, 4f * unit); lineTo(21f * unit, 11f * unit) }
                 drawPath(roof, color, style = Stroke(stroke, cap = StrokeCap.Round))

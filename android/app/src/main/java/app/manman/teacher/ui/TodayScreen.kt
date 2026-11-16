@@ -27,7 +27,7 @@ import java.util.Locale
 fun TodayScreen(state: MainUiState, viewModel: MainViewModel, onSettings: () -> Unit, onMenu: () -> Unit,
     onWork: () -> Unit, onNotices: () -> Unit, onAddTask: () -> Unit, onTask: (String) -> Unit) {
     val today = rememberToday()
-    val taskCount = state.tasks.count { TaskOrdering.date(it) == today }
+    val taskCount = state.tasks.count { !it.done && TaskOrdering.date(it) == today }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {

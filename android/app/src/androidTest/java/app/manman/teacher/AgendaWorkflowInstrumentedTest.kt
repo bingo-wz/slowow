@@ -64,8 +64,11 @@ class AgendaWorkflowInstrumentedTest {
                 assertTrue(device.wait(Until.hasObject(By.text("布置作业")), 10_000))
                 assertFalse(device.hasObject(By.text("明天的虚构待办")))
                 byDescription(device, "完成准备作业").click()
+                expandCompleted(device)
                 assertTrue(device.wait(Until.hasObject(By.desc("取消完成准备作业")), 10_000))
                 assertTrue(RecordCodec.task(app.database.records().find(account, RecordKind.TASK, ids[0])!!).done)
+                byDescription(device, "取消完成准备作业").click()
+                assertTrue(device.wait(Until.hasObject(By.desc("完成准备作业")), 10_000))
                 val from = byDescription(device, "拖动调整布置作业的顺序").visibleCenter
                 val to = byDescription(device, "拖动调整准备作业的顺序").visibleCenter
                 device.drag(from.x, from.y, to.x, to.y, 30)
@@ -178,6 +181,7 @@ class AgendaWorkflowInstrumentedTest {
                 assertFalse(Rect.intersects(notice, settings))
                 assertFalse(Rect.intersects(all, add))
                 assertTrue(device.wait(Until.hasObject(By.text("准备明天的语文作业")), 10_000))
+                expandCompleted(device)
                 assertTrue(device.wait(Until.hasObject(By.text("整理班级通知")), 10_000))
                 assertTrue(device.takeScreenshot(File(app.cacheDir, "agenda-large-font.png")))
                 val center = byDescription(device, "设置").visibleCenter
@@ -239,6 +243,16 @@ class AgendaWorkflowInstrumentedTest {
 
     private fun byDescription(device: UiDevice, label: String): UiObject2 =
         device.wait(Until.findObject(By.desc(label)), 10_000) ?: throw AssertionError("未找到图标：$label")
+
+    private fun expandCompleted(device: UiDevice) {
+        repeat(10) {
+            val group = device.wait(Until.findObject(By.textStartsWith("已完成 ")), 800)
+            if (group != null) { group.click(); return }
+            device.swipe(device.displayWidth / 2, device.displayHeight * 3 / 4,
+                device.displayWidth / 2, device.displayHeight / 3, 30)
+        }
+        throw AssertionError("未找到已完成区")
+    }
 
     private fun tapDescription(device: UiDevice, label: String) {
         repeat(5) {

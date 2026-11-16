@@ -15,6 +15,7 @@ import app.manman.teacher.data.AttachmentMeta
 import app.manman.teacher.data.TimeSlot
 import app.manman.teacher.data.Lesson
 import app.manman.teacher.data.ScheduleProfile
+import app.manman.teacher.data.RoutineRule
 import app.manman.teacher.data.Notice
 import app.manman.teacher.data.WorkTask
 import app.manman.teacher.data.RecordCodec
@@ -29,7 +30,9 @@ import app.manman.teacher.recognition.ScheduleSuggestion
 import app.manman.teacher.recognition.ScheduleProgressUpdate
 import app.manman.teacher.recognition.SchedulePhase
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -38,7 +41,10 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
+import java.time.Instant
 import java.time.LocalDate
 
 data class ScheduleProgressState(val update: ScheduleProgressUpdate, val startedAt: Long)
@@ -61,6 +67,7 @@ data class MainUiState(
     val scheduleProfile: ScheduleProfile = ScheduleProfile(),
     val notices: List<Notice> = emptyList(),
     val tasks: List<WorkTask> = emptyList(),
+    val routines: List<RoutineRule> = emptyList(),
     val noticeSuggestion: NoticeSuggestion? = null,
     val scheduleSuggestion: ScheduleSuggestion? = null,
     val scheduleSourceUris: List<String> = emptyList(),
@@ -76,10 +83,17 @@ class MainViewModel(private val application: ManmanApplication) : ViewModel() {
     private val auth = application.auth
     private val repository = ClassRepository(application.database)
     private val mutableState = MutableStateFlow(MainUiState())
+    private val mutableTaskCompletions = MutableSharedFlow<Int>(extraBufferCapacity = 1)
+    private val agendaMutex = Mutex()
+    private var openedAt: Instant? = null
+    private var agendaRefresh: Job? = null
+    private var agendaRefreshRequested = false
+    private var agendaRegenerationRequested = false
     private var manualSync: Job? = null
     private var reminderRefresh: Job? = null
     private var scheduleJob: Job? = null
     val state: StateFlow<MainUiState> = mutableState.asStateFlow()
+    val taskCompletions = mutableTaskCompletions.asSharedFlow()
 
     init {
         viewModelScope.launch {
@@ -95,8 +109,23 @@ class MainViewModel(private val application: ManmanApplication) : ViewModel() {
                     mutableState.update { it.copy(accountId = accountId, verification = null, error = null) }
                     SyncWorker.enqueue(application, accountId)
                     var reminderRecords: List<Triple<String, String, String>>? = null
+                    var agendaRecords: List<Triple<String, String, Boolean>>? = null
+                    var routineRecords: List<Triple<String, String, Boolean>>? = null
                     repository.observe(accountId).collect { records ->
                         updateRecords(records)
+                        val agenda = records.filter { it.kind == RecordKind.TASK ||
+                            (it.kind == RecordKind.SETTINGS && it.id.startsWith(RecordCodec.TASK_METADATA_PREFIX)) }
+                            .map { Triple(it.kind + ":" + it.id, it.payload, it.deleted) }.sortedBy { it.first }
+                        val routines = records.filter { it.kind == RecordKind.SETTINGS && it.id.startsWith(RecordCodec.ROUTINE_PREFIX) }
+                            .map { Triple(it.id, it.payload, it.deleted) }.sortedBy { it.first }
+                        if (routines != routineRecords) {
+                            routineRecords = routines
+                            requestAgendaRefresh(regenerate = true)
+                        }
+                        if (agenda != agendaRecords) {
+                            agendaRecords = agenda
+                            requestAgendaRefresh(regenerate = false)
+                        }
                         val relevant = records.filter { !it.deleted && it.kind in setOf(RecordKind.TASK, RecordKind.LESSON, RecordKind.TIME_SLOT, RecordKind.SETTINGS) }
                             .map { Triple(it.kind, it.id, it.payload) }.sortedBy { it.first + it.second }
                         if (relevant != reminderRecords) {
@@ -305,10 +334,56 @@ class MainViewModel(private val application: ManmanApplication) : ViewModel() {
         mutableState.update { it.copy(message = "通知已保存。") }
     }
 
-    fun saveTask(task: WorkTask, onDone: () -> Unit = {}) = perform {
-        repository.saveTask(requireAccount(), task)
+    fun saveTask(task: WorkTask, expected: WorkTask? = null, onDone: () -> Unit = {}) = perform {
+        repository.saveTask(requireAccount(), task, expected)
         onDone()
         mutableState.update { it.copy(message = if (task.done) "待办已完成。" else "待办已保存。") }
+    }
+
+    fun saveRoutine(rule: RoutineRule, expected: RoutineRule? = null, onDone: () -> Unit) = perform {
+        repository.saveRoutine(requireAccount(), rule, expected = expected)
+        onDone()
+        mutableState.update { it.copy(message = "固定安排已保存。") }
+    }
+
+    fun deleteRoutine(id: String, expected: RoutineRule? = null, onDone: () -> Unit) = perform {
+        repository.deleteRoutine(requireAccount(), id, expected = expected)
+        onDone()
+        mutableState.update { it.copy(message = "固定安排已删除。") }
+    }
+
+    fun onAppForeground() {
+        openedAt = Instant.now()
+        requestAgendaRefresh(regenerate = true)
+    }
+
+    fun onAppBackground() { openedAt = null }
+
+    private fun requestAgendaRefresh(regenerate: Boolean) {
+        if (openedAt == null || state.value.accountId == null) return
+        agendaRefreshRequested = true
+        agendaRegenerationRequested = agendaRegenerationRequested || regenerate
+        if (agendaRefresh?.isActive == true) return
+        agendaRefresh = viewModelScope.launch {
+            while (agendaRefreshRequested) {
+                agendaRefreshRequested = false
+                val regenerate = agendaRegenerationRequested
+                agendaRegenerationRequested = false
+                val open = openedAt ?: break
+                val account = state.value.accountId ?: break
+                try {
+                    val result = agendaMutex.withLock { repository.refreshAgenda(account, open, regenerate = regenerate) }
+                    if (result.todayCompleted > 0 && openedAt != null && state.value.accountId == account) {
+                        mutableTaskCompletions.tryEmit(result.todayCompleted)
+                    }
+                    if (result.changed) scheduleSyncAfterSave(account)
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (_: Exception) {
+                    mutableState.update { it.copy(error = "固定安排暂时无法更新，已有待办仍保留在本机。") }
+                }
+            }
+        }
     }
 
     fun reorderTasks(day: LocalDate?, ids: List<String>) = viewModelScope.launch {
@@ -328,14 +403,25 @@ class MainViewModel(private val application: ManmanApplication) : ViewModel() {
     fun setTaskDone(id: String, done: Boolean) = viewModelScope.launch {
         try {
             val account = requireAccount()
-            repository.setTaskDone(account, id, done)
-            SyncWorker.enqueue(application, account)
+            val changed = repository.setTaskDone(account, id, done)
+            if (changed) {
+                if (done && state.value.accountId == account) mutableTaskCompletions.tryEmit(1)
+                scheduleSyncAfterSave(account)
+            }
         } catch (error: CancellationException) {
             throw error
         } catch (error: IllegalArgumentException) {
             mutableState.update { it.copy(error = error.message ?: "待办状态未保存。") }
         } catch (_: Exception) {
             mutableState.update { it.copy(error = "待办状态未保存，请稍后重试。") }
+        }
+    }
+
+    private fun scheduleSyncAfterSave(account: String) {
+        try {
+            SyncWorker.enqueue(application, account)
+        } catch (_: Exception) {
+            mutableState.update { it.copy(error = "更改已保存在本机，同步暂未安排，请在设置中重试。") }
         }
     }
 
@@ -426,7 +512,14 @@ class MainViewModel(private val application: ManmanApplication) : ViewModel() {
         val timeSlots = decode(RecordKind.TIME_SLOT, RecordCodec::timeSlot).sortedBy(TimeSlot::start)
         val lessons = decode(RecordKind.LESSON, RecordCodec::lesson)
         val notices = decode(RecordKind.NOTICE, RecordCodec::notice).sortedByDescending(Notice::createdAt)
-        val tasks = decode(RecordKind.TASK, RecordCodec::task).sortedByDescending(WorkTask::createdAt)
+        val metadata = visible.filter { it.kind == RecordKind.SETTINGS && it.id.startsWith(RecordCodec.TASK_METADATA_PREFIX) }
+            .mapNotNull { record -> try { RecordCodec.taskMetadata(record) } catch (_: Exception) { unreadable++; null } }
+            .associateBy { it.taskId }
+        val tasks = decode(RecordKind.TASK, RecordCodec::task).map { RecordCodec.withMetadata(it, metadata[it.id]) }
+            .sortedByDescending(WorkTask::createdAt)
+        val routines = visible.filter { it.kind == RecordKind.SETTINGS && it.id.startsWith(RecordCodec.ROUTINE_PREFIX) }
+            .mapNotNull { record -> try { RecordCodec.routine(record) } catch (_: Exception) { unreadable++; null } }
+            .sortedBy { it.current.title }
         val reminderSettings = visible.firstOrNull { it.kind == RecordKind.SETTINGS && it.id == "reminders" }?.let {
             try { JSONObject(it.payload) } catch (_: Exception) { unreadable++; null }
         }
@@ -437,7 +530,7 @@ class MainViewModel(private val application: ManmanApplication) : ViewModel() {
         mutableState.update { it.copy(
             students = students, leaves = leaves, markings = markings,
             menuWeeks = menuWeeks, attachments = attachments,
-            timeSlots = timeSlots, lessons = lessons, scheduleProfile = scheduleProfile, notices = notices, tasks = tasks,
+            timeSlots = timeSlots, lessons = lessons, scheduleProfile = scheduleProfile, notices = notices, tasks = tasks, routines = routines,
             lessonReminderMinutes = lessonReminder,
             pendingCount = records.count(LocalRecord::dirty),
             conflicts = records.filter { record -> record.conflictVersion != null }, unreadableCount = unreadable,

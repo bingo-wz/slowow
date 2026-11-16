@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -76,6 +77,7 @@ fun TaskAgenda(
     val days: List<LocalDate?> = if (onlyToday) listOf(today) else
         (grouped.keys.filterNotNull() + today).distinct().sorted() + if (null in grouped) listOf(null) else emptyList()
     var collapsed by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
+    var expandedCompleted by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
     var draggedOrder by remember { mutableStateOf<Map<String, List<String>>>(emptyMap()) }
     var dragging by remember { mutableStateOf(false) }
     LaunchedEffect(state.tasks) { if (!dragging) draggedOrder = emptyMap() }
@@ -96,7 +98,8 @@ fun TaskAgenda(
         val toId = (to.key as? String)?.takeIf { it.startsWith("task:") }?.removePrefix("task:")
         val source = state.tasks.firstOrNull { it.id == fromId }
         val target = state.tasks.firstOrNull { it.id == toId }
-        if (source != null && target != null && TaskOrdering.date(source) == TaskOrdering.date(target)) {
+        if (source != null && target != null && source.done == target.done && source.dueAt == target.dueAt &&
+            TaskOrdering.date(source) == TaskOrdering.date(target)) {
             val day = TaskOrdering.date(source)
             val ids = tasksFor(day).map(WorkTask::id).toMutableList()
             val sourceIndex = ids.indexOf(source.id)
@@ -108,6 +111,47 @@ fun TaskAgenda(
                 if (now - lastDragTick[0] >= 80) {
                     feedback.dragStep()
                     lastDragTick[0] = now
+                }
+            }
+        }
+    }
+    fun LazyListScope.taskRows(tasks: List<WorkTask>) {
+        items(tasks, key = { "task:${it.id}" }) { task ->
+            ReorderableItem(reorderState, key = "task:${task.id}") { _ ->
+                Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer, MaterialTheme.shapes.medium),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = task.done, enabled = !state.busy,
+                        onCheckedChange = feedbackToggle { checked -> viewModel.setTaskDone(task.id, checked) },
+                        modifier = Modifier.semantics { contentDescription = if (task.done) "取消完成${task.title}" else "完成${task.title}" })
+                    Column(Modifier.weight(1f).feedbackClickable { onTask(task.id) }.padding(vertical = 8.dp)) {
+                        Text(task.title, style = MaterialTheme.typography.bodyLarge,
+                            color = if (task.done) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+                            textDecoration = if (task.done) TextDecoration.LineThrough else TextDecoration.None)
+                        task.dueAt?.let {
+                            val start = it.atZone(AppTime.zone).format(DateTimeFormatter.ofPattern("HH:mm"))
+                            val end = task.endAt?.atZone(AppTime.zone)?.format(DateTimeFormatter.ofPattern("HH:mm"))
+                            Text(if (end == null) start else "$start—$end",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                        }
+                        if (task.autoCompleted) Text("按时间自动完成", color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall)
+                        if (task.timingNeedsReview) Text("时间段需要核对", color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                    val lockedByTime = task.dueAt != null && tasks.none { it.id != task.id && it.dueAt == task.dueAt }
+                    Box(Modifier.size(48.dp).draggableHandle(
+                        enabled = !state.busy && !lockedByTime,
+                        onDragStarted = { dragging = true; lastDragTick[0] = SystemClock.elapsedRealtime(); feedback.dragStart() },
+                        onDragStopped = {
+                            dragging = false
+                            draggedOrder[dateKey(TaskOrdering.date(task))]?.let { ids ->
+                                viewModel.reorderTasks(TaskOrdering.date(task), ids)
+                            }
+                        },
+                    ).semantics { contentDescription = if (lockedByTime) "${task.title}按时间排序" else "拖动调整${task.title}的顺序" },
+                        contentAlignment = Alignment.Center) {
+                        LineIcon(if (lockedByTime) "clock" else "drag")
+                    }
                 }
             }
         }
@@ -142,36 +186,27 @@ fun TaskAgenda(
                     Text("今天还没有待办", Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyMedium)
                 }
-                items(tasks, key = { "task:${it.id}" }) { task ->
-                    ReorderableItem(reorderState, key = "task:${task.id}") { _ ->
-                        Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer, MaterialTheme.shapes.medium),
-                            verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(checked = task.done, enabled = !state.busy,
-                                onCheckedChange = feedbackToggle { checked -> viewModel.setTaskDone(task.id, checked) },
-                                modifier = Modifier.semantics { contentDescription = if (task.done) "取消完成${task.title}" else "完成${task.title}" })
-                            Column(Modifier.weight(1f).feedbackClickable { onTask(task.id) }.padding(vertical = 8.dp)) {
-                                Text(task.title, style = MaterialTheme.typography.bodyLarge,
-                                    color = if (task.done) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
-                                    textDecoration = if (task.done) TextDecoration.LineThrough else TextDecoration.None)
-                                task.dueAt?.let {
-                                    Text(it.atZone(AppTime.zone).format(DateTimeFormatter.ofPattern("HH:mm")),
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-                                }
-                            }
-                            Box(Modifier.size(48.dp).draggableHandle(
-                                enabled = !state.busy,
-                                onDragStarted = { dragging = true; lastDragTick[0] = SystemClock.elapsedRealtime(); feedback.dragStart() },
-                                onDragStopped = {
-                                    dragging = false
-                                    draggedOrder[dateKey(TaskOrdering.date(task))]?.let { ids ->
-                                        viewModel.reorderTasks(TaskOrdering.date(task), ids)
-                                    }
-                                },
-                            ).semantics { contentDescription = "拖动调整${task.title}的顺序" }, contentAlignment = Alignment.Center) {
-                                LineIcon("drag")
-                            }
+                val pending = tasks.filterNot(WorkTask::done)
+                val completed = tasks.filter(WorkTask::done)
+                if (pending.isEmpty() && completed.isNotEmpty() && day == today) item(key = "all-done:$key") {
+                    Text("今天的待办都完成啦", Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium)
+                }
+                taskRows(pending)
+                if (completed.isNotEmpty()) {
+                    val expanded = key in expandedCompleted
+                    item(key = "completed:$key") {
+                        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                            .semantics { stateDescription = if (expanded) "已展开" else "已折叠" }
+                            .feedbackClickable {
+                                expandedCompleted = ArrayList(if (expanded) expandedCompleted - key else expandedCompleted + key)
+                            }.padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("已完成 ${completed.size} 项", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            LineIcon(if (expanded) "up" else "down", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
+                    if (expanded) taskRows(completed)
                 }
             }
         }

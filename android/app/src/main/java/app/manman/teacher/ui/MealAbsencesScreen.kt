@@ -33,9 +33,9 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
 @Composable
-fun MealAbsencesScreen(state: MainUiState, back: () -> Unit) {
+fun MealAbsencesScreen(state: MainUiState, back: () -> Unit, initialDate: LocalDate? = null) {
     val today = rememberToday()
-    var selectedDate by rememberSaveable { mutableStateOf(today.toString()) }
+    var selectedDate by rememberSaveable(initialDate) { mutableStateOf((initialDate ?: today).toString()) }
     val day = LocalDate.parse(selectedDate)
     val people = remember(day, state.students, state.leaves) { MealAbsenceRules.forDate(day, state.students, state.leaves) }
     val context = LocalContext.current

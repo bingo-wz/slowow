@@ -15,6 +15,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import org.json.JSONArray
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
@@ -54,7 +55,13 @@ class SyncEngine(
                         409 -> {
                             val remote = response.json.optJSONObject("current")
                                 ?: throw IOException("同步冲突需要重新核对")
-                            records.saveConflict(accountId, record.kind, record.id, parseRemote(remote))
+                            val current = parseRemote(remote)
+                            if (current.kind != record.kind || current.id != record.id || current.version < record.serverVersion) {
+                                throw IOException("同步冲突的记录无效")
+                            }
+                            if (current.deleted == record.deleted && jsonEquivalent(JSONObject(record.payload), JSONObject(current.payload))) {
+                                records.acknowledge(accountId, record, current.version)
+                            } else records.saveConflict(accountId, record.kind, record.id, current)
                         }
                         401 -> throw AuthException("unauthenticated", "登录已过期，请重新登录。")
                         else -> throw IOException("云端暂时不可用")
@@ -120,6 +127,22 @@ class SyncEngine(
         sequence = json.getLong("sequence"),
         updatedAt = json.getLong("updatedAt"),
     )
+
+    private fun jsonEquivalent(left: Any?, right: Any?): Boolean = when {
+        left == null || left === JSONObject.NULL -> right == null || right === JSONObject.NULL
+        left is JSONObject && right is JSONObject -> {
+            val keys = left.keys().asSequence().toSet()
+            keys == right.keys().asSequence().toSet() && keys.all { jsonEquivalent(left.opt(it), right.opt(it)) }
+        }
+        left is JSONArray && right is JSONArray -> left.length() == right.length() &&
+            (0 until left.length()).all { jsonEquivalent(left.opt(it), right.opt(it)) }
+        left is Number && right is Number -> {
+            val a = left.toString().toBigDecimalOrNull()
+            val b = right.toString().toBigDecimalOrNull()
+            a != null && b != null && a.compareTo(b) == 0
+        }
+        else -> left == right
+    }
 
 }
 

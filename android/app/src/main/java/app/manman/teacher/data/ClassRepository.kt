@@ -4,11 +4,17 @@ import androidx.room.withTransaction
 import app.manman.teacher.domain.Leave
 import app.manman.teacher.domain.Student
 import app.manman.teacher.domain.TaskOrdering
+import app.manman.teacher.domain.AppTime
+import app.manman.teacher.domain.RoutineOccurrence
+import app.manman.teacher.domain.RoutinePlanner
 import app.manman.teacher.recognition.ScheduleSuggestion
 import kotlinx.coroutines.flow.Flow
 import org.json.JSONObject
 import java.time.LocalDate
+import java.time.Instant
 import java.util.UUID
+
+data class AgendaRefreshResult(val changed: Boolean, val todayCompleted: Int, val earlierCompleted: Int)
 
 class ClassRepository(private val database: ManmanDatabase) {
     private val dao = database.records()
@@ -219,23 +225,231 @@ class ClassRepository(private val database: ManmanDatabase) {
         }
     }
 
-    suspend fun saveTask(accountId: String, task: WorkTask) {
+    suspend fun saveTask(accountId: String, task: WorkTask, expected: WorkTask? = null) {
         require(task.title.isNotBlank() && task.title.length <= 100) { "请填写不超过 100 个字的待办。" }
-        dao.saveLocal(accountId, RecordKind.TASK, task.id, RecordCodec.task(task.copy(title = task.title.trim())))
+        require(!task.timingNeedsReview) { "时间段需要重新设置或清除后才能保存。" }
+        require(task.endAt == null || (task.dueAt != null && task.endAt > task.dueAt)) { "结束时间应晚于开始时间。" }
+        database.withTransaction {
+            val draft = task.copy(title = task.title.trim())
+            if (expected == null) writeTask(accountId, draft) else {
+                require(expected.id == draft.id) { "待办信息不匹配，请重新打开。" }
+                val record = requireNotNull(dao.find(accountId, RecordKind.TASK, draft.id)) { "待办已不存在，请保留当前内容。" }
+                require(!record.deleted && record.conflictVersion == null) { "待办已删除或存在同步冲突，当前编辑内容尚未保存。" }
+                val current = readTask(accountId, record)
+                fun <T> merge(original: T, edited: T, latest: T): T {
+                    require(original == latest || original == edited || edited == latest) {
+                        "待办在其他设备上有不同修改，请保留当前内容并重新核对。"
+                    }
+                    return if (edited != original) edited else latest
+                }
+                data class Timing(val start: Instant?, val date: LocalDate?, val end: Instant?, val needsReview: Boolean)
+                fun timing(item: WorkTask) = Timing(item.dueAt, item.dueDate, item.endAt, item.timingNeedsReview)
+                val title = merge(expected.title, draft.title, current.title)
+                val time = merge(timing(expected), timing(draft), timing(current))
+                require(!time.needsReview) { "时间段需要重新设置或清除后才能保存。" }
+                val merged = current.copy(title = title, dueAt = time.start, dueDate = time.date, endAt = time.end,
+                    timingNeedsReview = time.needsReview, remindAt = merge(expected.remindAt, draft.remindAt, current.remindAt),
+                    routineException = current.routineException || (current.routineId != null &&
+                        (title != current.title || time != timing(current))),
+                    autoCompletionSuppressed = if (time != timing(current)) false else current.autoCompletionSuppressed)
+                val order = current.sortOrder.takeIf { TaskOrdering.date(merged) == TaskOrdering.date(current) }
+                writeTask(accountId, merged.copy(sortOrder = order))
+            }
+        }
     }
 
     suspend fun deleteTask(accountId: String, task: WorkTask) {
-        dao.saveLocal(accountId, RecordKind.TASK, task.id, RecordCodec.task(task), deleted = true)
+        database.withTransaction {
+            val record = requireNotNull(dao.find(accountId, RecordKind.TASK, task.id)) { "待办不存在。" }
+            require(!record.deleted && record.conflictVersion == null) { "待办已删除或存在同步冲突。" }
+            writeTask(accountId, readTask(accountId, record).copy(removedByRule = false), deleted = true)
+        }
     }
 
-    suspend fun setTaskDone(accountId: String, id: String, done: Boolean) {
+    suspend fun setTaskDone(accountId: String, id: String, done: Boolean, now: Instant = Instant.now()): Boolean =
         database.withTransaction {
             val record = requireNotNull(dao.find(accountId, RecordKind.TASK, id)) { "待办不存在。" }
             require(!record.deleted && record.conflictVersion == null) { "待办已删除或存在同步冲突。" }
-            val task = RecordCodec.task(record)
-            if (task.done != done) dao.saveLocal(accountId, RecordKind.TASK, id, RecordCodec.task(task.copy(done = done)))
+            val task = readTask(accountId, record)
+            if (task.done == done) false else {
+                val suppressed = task.autoCompletionSuppressed || (!done && task.endAt?.let { !it.isAfter(now) } == true)
+                writeTask(accountId, task.copy(done = done, autoCompletionSuppressed = suppressed, autoCompleted = false))
+                true
+            }
+        }
+
+    private suspend fun readTask(accountId: String, record: LocalRecord): WorkTask {
+        val meta = dao.find(accountId, RecordKind.SETTINGS, RecordCodec.taskMetadataId(record.id))
+        require(meta?.conflictVersion == null) { "待办的时间设置存在同步冲突，请先核对。" }
+        val metadata = meta?.takeUnless(LocalRecord::deleted)?.let {
+            try { RecordCodec.taskMetadata(it) } catch (_: Exception) {
+                throw IllegalArgumentException("待办的时间设置暂时无法读取，请保留本机数据。")
+            }
+        }
+        return RecordCodec.withMetadata(RecordCodec.task(record), metadata)
+    }
+
+    private suspend fun writeTask(accountId: String, task: WorkTask, deleted: Boolean = false) {
+        val metaId = RecordCodec.taskMetadataId(task.id)
+        val previous = dao.find(accountId, RecordKind.SETTINGS, metaId)
+        require(previous?.conflictVersion == null) { "待办的时间设置存在同步冲突，请先核对。" }
+        val taskPayload = RecordCodec.task(task)
+        val existing = dao.find(accountId, RecordKind.TASK, task.id)
+        require(existing?.conflictVersion == null) { "待办存在同步冲突，请先核对。" }
+        if (existing == null || existing.payload != taskPayload || existing.deleted != deleted) {
+            dao.saveLocal(accountId, RecordKind.TASK, task.id, taskPayload, deleted)
+        }
+        if (task.timingNeedsReview && previous != null && !previous.deleted) {
+            if (deleted) {
+                val metadata = RecordCodec.taskMetadata(previous)
+                if (metadata.removedByRule) dao.saveLocal(accountId, RecordKind.SETTINGS, metaId,
+                    RecordCodec.taskMetadata(metadata.copy(removedByRule = false)))
+            }
+            return
+        }
+        val hasMetadata = previous != null || task.endAt != null || task.routineId != null || task.showMealList ||
+            task.autoCompleted || task.autoCompletionSuppressed
+        if (hasMetadata) {
+            val payload = RecordCodec.taskMetadata(RecordCodec.metadataFor(task))
+            if (previous == null || previous.deleted || previous.payload != payload) {
+                dao.saveLocal(accountId, RecordKind.SETTINGS, metaId, payload)
+            }
         }
     }
+
+    suspend fun saveRoutine(accountId: String, rule: RoutineRule, now: Instant = Instant.now(), expected: RoutineRule? = null) {
+        require(rule.id.matches(Regex("[A-Za-z0-9_-]{1,80}")) && rule.versions.isNotEmpty()) { "固定安排无效。" }
+        require(rule.versions.map(RoutineVersion::effectiveFrom).distinct().size == rule.versions.size) { "固定安排日期重复。" }
+        rule.versions.forEach { version ->
+            require(version.title.isNotBlank() && version.title.length <= 100) { "请填写不超过 100 个字的安排名称。" }
+            require(version.weekdays.isNotEmpty() && version.weekdays.all { it in 1..7 }) { "请至少选择一个星期。" }
+            require((version.start == null && version.end == null) ||
+                (version.start != null && version.end != null && version.end > version.start)) { "结束时间应晚于开始时间。" }
+        }
+        database.withTransaction {
+            val id = RecordCodec.routineRecordId(rule.id)
+            val previous = dao.find(accountId, RecordKind.SETTINGS, id)
+            require(previous?.conflictVersion == null) { "固定安排存在同步冲突，请先核对。" }
+            if (expected != null) {
+                require(expected.id == rule.id && previous != null && !previous.deleted && RecordCodec.routine(previous) == expected) {
+                    "固定安排已在其他设备修改或删除，请保留当前内容并重新核对。"
+                }
+            }
+            dao.saveLocal(accountId, RecordKind.SETTINGS, id, RecordCodec.routine(rule))
+            reconcileRoutines(accountId, now)
+        }
+    }
+
+    suspend fun deleteRoutine(accountId: String, id: String, now: Instant = Instant.now(), expected: RoutineRule? = null) {
+        database.withTransaction {
+            val key = RecordCodec.routineRecordId(id)
+            val record = requireNotNull(dao.find(accountId, RecordKind.SETTINGS, key)) { "固定安排不存在。" }
+            require(!record.deleted && record.conflictVersion == null) { "固定安排已删除或存在同步冲突。" }
+            require(expected == null || (expected.id == id && RecordCodec.routine(record) == expected)) {
+                "固定安排已在其他设备修改，请重新核对后再删除。"
+            }
+            dao.saveLocal(accountId, RecordKind.SETTINGS, key, record.payload, deleted = true)
+            val today = now.atZone(AppTime.zone).toLocalDate()
+            val snapshot = dao.snapshot(accountId)
+            val metadata = snapshot.filter { it.kind == RecordKind.SETTINGS && it.id.startsWith(RecordCodec.TASK_METADATA_PREFIX) }
+                .associateBy(LocalRecord::id)
+            snapshot.filter { it.kind == RecordKind.TASK && !it.deleted && it.conflictVersion == null }.forEach { item ->
+                val task = snapshotTask(item, metadata) ?: return@forEach
+                if (task.routineId == id && task.routineDate?.isBefore(today) == false && !task.done && !task.routineException) {
+                    writeTask(accountId, task.copy(removedByRule = true), deleted = true)
+                }
+            }
+        }
+    }
+
+    suspend fun refreshAgenda(accountId: String, openedAt: Instant, celebrateToday: Boolean = true,
+        regenerate: Boolean = true): AgendaRefreshResult =
+        database.withTransaction {
+            val generated = if (regenerate) reconcileRoutines(accountId, openedAt) else emptySet()
+            val today = openedAt.atZone(AppTime.zone).toLocalDate()
+            var todayCompleted = 0
+            var earlierCompleted = 0
+            var changed = generated.isNotEmpty()
+            val records = dao.snapshot(accountId)
+            val metadata = records.filter { it.kind == RecordKind.SETTINGS && it.id.startsWith(RecordCodec.TASK_METADATA_PREFIX) }
+                .associateBy(LocalRecord::id)
+            val ruleUpdatedAt = records.filter { it.kind == RecordKind.SETTINGS && it.id.startsWith(RecordCodec.ROUTINE_PREFIX) }
+                .associate { it.id.removePrefix(RecordCodec.ROUTINE_PREFIX) to it.updatedAt }
+            val conflictedRules = records.filter { it.kind == RecordKind.SETTINGS && it.id.startsWith(RecordCodec.ROUTINE_PREFIX) &&
+                it.conflictVersion != null }.map { it.id.removePrefix(RecordCodec.ROUTINE_PREFIX) }.toSet()
+            records.filter { it.kind == RecordKind.TASK && !it.deleted && it.conflictVersion == null }.forEach { record ->
+                val task = snapshotTask(record, metadata) ?: return@forEach
+                if (task.routineId in conflictedRules) return@forEach
+                val eligibleAtOpen = record.updatedAt <= openedAt.toEpochMilli() ||
+                    (task.id in generated && task.routineId?.let { (ruleUpdatedAt[it] ?: Long.MAX_VALUE) <= openedAt.toEpochMilli() } == true)
+                if (eligibleAtOpen && RoutinePlanner.shouldAutoComplete(task, openedAt)) {
+                    writeTask(accountId, task.copy(done = true, autoCompleted = true))
+                    if (task.endAt!!.atZone(AppTime.zone).toLocalDate() == today && celebrateToday) todayCompleted++
+                    else earlierCompleted++
+                    changed = true
+                }
+            }
+            AgendaRefreshResult(changed, todayCompleted, earlierCompleted)
+        }
+
+    private suspend fun reconcileRoutines(accountId: String, now: Instant): Set<String> {
+        val snapshot = dao.snapshot(accountId)
+        val today = now.atZone(AppTime.zone).toLocalDate()
+        val horizon = today.plusDays(7)
+        val rules = snapshot.filter { it.kind == RecordKind.SETTINGS && it.id.startsWith(RecordCodec.ROUTINE_PREFIX) &&
+            !it.deleted && it.conflictVersion == null }.mapNotNull { runCatching { RecordCodec.routine(it) }.getOrNull() }
+        val records = snapshot.filter { it.kind == RecordKind.TASK }.associateBy(LocalRecord::id)
+        val metadata = snapshot.filter { it.kind == RecordKind.SETTINGS && it.id.startsWith(RecordCodec.TASK_METADATA_PREFIX) }
+            .associateBy(LocalRecord::id)
+        val generated = mutableSetOf<String>()
+        val planned = mutableMapOf<String, RoutineOccurrence>()
+        rules.forEach { rule ->
+            RoutinePlanner.occurrences(rule, rule.versions.minOf(RoutineVersion::effectiveFrom), horizon).forEach { occurrence ->
+                planned[occurrence.id] = occurrence
+                val record = records[occurrence.id]
+                if (record == null) {
+                    writeTask(accountId, occurrenceTask(occurrence))
+                    generated.add(occurrence.id)
+                } else if (record.conflictVersion == null) {
+                    val task = snapshotTask(record, metadata) ?: return@forEach
+                    if (occurrence.date < today || task.done || task.routineException || task.timingNeedsReview) return@forEach
+                    if (record.deleted && !task.removedByRule) return@forEach
+                    val replacement = task.copy(title = occurrence.version.title, dueAt = occurrence.start, endAt = occurrence.end,
+                        dueDate = occurrence.date, showMealList = occurrence.version.showMealList, removedByRule = false,
+                        autoCompletionSuppressed = if (task.dueAt != occurrence.start || task.endAt != occurrence.end) false
+                            else task.autoCompletionSuppressed)
+                    if (record.deleted || replacement != task) {
+                        writeTask(accountId, replacement)
+                        generated.add(occurrence.id)
+                    }
+                }
+            }
+        }
+        val activeRuleIds = rules.map(RoutineRule::id).toSet()
+        snapshot.filter { it.kind == RecordKind.TASK && !it.deleted && it.conflictVersion == null }.forEach { record ->
+            val task = snapshotTask(record, metadata) ?: return@forEach
+            val date = task.routineDate ?: return@forEach
+            val rule = task.routineId?.takeIf { it in activeRuleIds } ?: return@forEach
+            if (!date.isBefore(today) && !task.done && !task.routineException && !task.timingNeedsReview &&
+                task.id !in planned && (date <= horizon || rules.first { it.id == rule }.let {
+                    RoutinePlanner.occurrences(it, date, date).isEmpty()
+                })) {
+                writeTask(accountId, task.copy(removedByRule = true), deleted = true)
+                generated.add(task.id)
+            }
+        }
+        return generated
+    }
+
+    private fun occurrenceTask(value: RoutineOccurrence): WorkTask = WorkTask(value.id, value.version.title, null,
+        value.start, null, false, value.createdAt, value.date, endAt = value.end, routineId = value.ruleId,
+        routineDate = value.date, showMealList = value.version.showMealList)
+
+    private fun snapshotTask(record: LocalRecord, metadata: Map<String, LocalRecord>): WorkTask? = try {
+        val meta = metadata[RecordCodec.taskMetadataId(record.id)]
+        if (meta?.conflictVersion != null) null else RecordCodec.withMetadata(RecordCodec.task(record),
+            meta?.takeUnless(LocalRecord::deleted)?.let(RecordCodec::taskMetadata))
+    } catch (_: Exception) { null }
 
     suspend fun reorderTasks(accountId: String, day: LocalDate?, orderedIds: List<String>) {
         require(orderedIds.isNotEmpty() && orderedIds.distinct().size == orderedIds.size) { "待办顺序无效。" }

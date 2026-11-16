@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import app.manman.teacher.MainUiState
 import app.manman.teacher.MainViewModel
 import app.manman.teacher.data.LocalRecord
+import app.manman.teacher.data.RecordCodec
 import app.manman.teacher.data.RecordKind
 import app.manman.teacher.sync.SyncPhase
 import app.manman.teacher.ManmanApplication
@@ -92,7 +93,7 @@ fun SettingsScreen(state: MainUiState, viewModel: MainViewModel, back: () -> Uni
                 SectionHeading("需要核对")
                 state.conflicts.forEach { record ->
                     Block(onClick = { selectedConflict = record }) {
-                        Text("${kindLabel(record.kind)}在其他设备上有改动")
+                        Text("${kindLabel(record.kind, record.id)}在其他设备上有改动")
                         Text("本机与云端内容都已保留，点此核对。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
@@ -132,8 +133,9 @@ fun SettingsScreen(state: MainUiState, viewModel: MainViewModel, back: () -> Uni
         val names = state.students.associate { it.id to it.name }
         val slots = state.timeSlots.associate { it.id to it.title }
         val notices = state.notices.associate { it.id to it.title }
-        val localDescription = describeRecord(record.kind, record.payload, record.deleted, names, slots, notices)
-        val remoteDescription = describeRecord(record.kind, record.conflictPayload.orEmpty(), record.conflictDeleted, names, slots, notices)
+        val routines = state.routines.associate { it.id to it.current.title }
+        val localDescription = describeRecord(record.kind, record.payload, record.deleted, names, slots, notices, routines)
+        val remoteDescription = describeRecord(record.kind, record.conflictPayload.orEmpty(), record.conflictDeleted, names, slots, notices, routines)
         val imageConflict = try {
             val local = JSONObject(record.payload)
             val remote = JSONObject(record.conflictPayload.orEmpty())
@@ -147,7 +149,7 @@ fun SettingsScreen(state: MainUiState, viewModel: MainViewModel, back: () -> Uni
         val canCompare = localDescription != null && remoteDescription != null && !imageConflict
         AlertDialog(
             onDismissRequest = feedbackClick { selectedConflict = null },
-            title = { Text("核对${kindLabel(record.kind)}") },
+            title = { Text("核对${kindLabel(record.kind, record.id)}") },
             text = {
                 Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("本机内容", style = MaterialTheme.typography.titleMedium)
@@ -217,7 +219,7 @@ private fun ReminderSettings(state: MainUiState, viewModel: MainViewModel) {
     )
 }
 
-private fun kindLabel(kind: String): String = when (kind) {
+private fun kindLabel(kind: String, id: String): String = when (kind) {
     RecordKind.STUDENT -> "学生信息"
     RecordKind.LEAVE -> "请假记录"
     RecordKind.MEAL_OVERRIDE, RecordKind.LUNCH_REVIEW -> "旧版用餐记录"
@@ -229,11 +231,16 @@ private fun kindLabel(kind: String): String = when (kind) {
     RecordKind.LESSON -> "课程"
     RecordKind.NOTICE -> "学校通知"
     RecordKind.TASK -> "待办"
-    RecordKind.SETTINGS -> "班级设置"
+    RecordKind.SETTINGS -> when {
+        id.startsWith(RecordCodec.ROUTINE_PREFIX) -> "固定安排"
+        id.startsWith(RecordCodec.TASK_METADATA_PREFIX) -> "待办时间设置"
+        else -> "班级设置"
+    }
     else -> "记录"
 }
 
-private fun describeRecord(kind: String, payload: String, deleted: Boolean, names: Map<String, String>, slots: Map<String, String>, notices: Map<String, String>): String? {
+private fun describeRecord(kind: String, payload: String, deleted: Boolean, names: Map<String, String>, slots: Map<String, String>,
+    notices: Map<String, String>, routines: Map<String, String>): String? {
     if (deleted) return "已删除"
     return try {
         val json = JSONObject(payload)
@@ -277,11 +284,30 @@ private fun describeRecord(kind: String, payload: String, deleted: Boolean, name
                 val source = if (json.isNull("noticeId")) "无" else notices[json.getString("noticeId")] ?: "关联的通知"
                 "事项：${json.getString("title")}\n时间：${optional("dueAt")}\n日期：${optional("dueDate")}\n提醒：${optional("remindAt")}\n状态：${if (json.getBoolean("done")) "已完成" else "待处理"}\n来源：$source"
             }
-            RecordKind.SETTINGS -> if (json.has("lessonMinutes")) {
-                val minutes = json.optInt("lessonMinutes", -1)
-                val course = if (minutes < 0) "关闭" else "提前 $minutes 分钟"
-                "课程提醒：$course"
-            } else "旧版设置已停用，原数据仍保留。"
+            RecordKind.SETTINGS -> when {
+                json.optString("type") == "routine_v1" -> {
+                    val versions = json.getJSONArray("versions")
+                    (0 until versions.length()).joinToString("\n\n") { index ->
+                        val version = versions.getJSONObject(index)
+                        val days = version.getJSONArray("weekdays")
+                        val names = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
+                        val weekdays = (0 until days.length()).map { days.getInt(it) }.filter { it in 1..7 }.joinToString("、") { names[it - 1] }
+                        val time = if (version.isNull("start") || version.isNull("end")) "未设置" else "${version.getString("start")}—${version.getString("end")}"
+                        "生效日期：${version.getString("effectiveFrom")}\n事项：${version.getString("title")}\n星期：$weekdays\n时间：$time\n${if (version.optBoolean("enabled", true)) "已启用" else "已暂停"}\n${if (version.optBoolean("showMealList")) "关联不在校用餐名单" else "未关联用餐名单"}"
+                    }
+                }
+                json.optString("type") == "task_metadata_v1" -> {
+                    fun optional(key: String): String = if (json.isNull(key)) "未设置" else json.getString(key)
+                    val routine = if (json.isNull("routineId")) "无" else routines[json.getString("routineId")] ?: "关联的固定安排"
+                    "事项：${optional("expectedTitle")}\n开始：${optional("expectedDueAt")}\n结束：${optional("endAt")}\n日期：${optional("expectedDueDate")}\n固定安排：$routine\n重复日期：${optional("routineDate")}\n${if (json.optBoolean("expectedDone")) "已完成" else "待处理"}\n${if (json.optBoolean("autoCompleted")) "按时间自动完成" else "未自动完成"}\n${if (json.optBoolean("autoCompletionSuppressed")) "保留手动取消完成" else "允许按时间自动完成"}\n${if (json.optBoolean("routineException")) "此事项已单独修改" else "使用固定安排"}\n${if (json.optBoolean("removedByRule")) "已由固定安排暂停" else "未由固定安排暂停"}\n${if (json.optBoolean("showMealList")) "关联不在校用餐名单" else "未关联用餐名单"}"
+                }
+                json.has("lessonMinutes") -> {
+                    val minutes = json.optInt("lessonMinutes", -1)
+                    val course = if (minutes < 0) "关闭" else "提前 $minutes 分钟"
+                    "课程提醒：$course"
+                }
+                else -> "旧版设置已停用，原数据仍保留。"
+            }
             else -> null
         }
     } catch (_: Exception) {
