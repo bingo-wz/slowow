@@ -81,6 +81,21 @@ fun ManmanApp(viewModel: MainViewModel, shared: IncomingShare? = null, openFores
         "LUNCH", "LUNCH_HISTORY" -> Page.MEAL_ABSENCES
         else -> Page.entries.firstOrNull { it.name == pageName } ?: Page.TODAY
     }
+    val today = rememberToday()
+    val agendaCalendarRange = when (page) {
+        Page.TODAY -> {
+            val week = rememberWeekDates(homeDay ?: today)
+            week.first()..week.last()
+        }
+        Page.WORK -> if (!showNotices && !workUndated) {
+            val month = workMonth ?: YearMonth.from(workDay ?: today)
+            month.atDay(1)..month.atEndOfMonth()
+        } else null
+        else -> null
+    }
+    LaunchedEffect(viewModel, state.accountId, agendaCalendarRange) {
+        viewModel.setAgendaCalendarRange(agendaCalendarRange)
+    }
     val classroomState = rememberSaveableStateHolder()
     val snackbar = remember { SnackbarHostState() }
     var completionSequence by remember { mutableIntStateOf(0) }

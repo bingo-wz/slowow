@@ -46,6 +46,64 @@ class RoutineRepositoryInstrumentedTest {
         } finally { database.close() }
     }
 
+    @Test fun browsingLaterDatesCreatesOnlyThatWindowAndKeepsFutureEditsConsistent() = runBlocking {
+        val app = ApplicationProvider.getApplicationContext<ManmanApplication>()
+        val database = Room.inMemoryDatabaseBuilder(app, ManmanDatabase::class.java).build()
+        try {
+            val repository = ClassRepository(database)
+            val dao = database.records()
+            val owner = "browsed-week-${UUID.randomUUID()}"
+            val now = Instant.now()
+            val today = now.atZone(AppTime.zone).toLocalDate()
+            val from = today.plusWeeks(8)
+            val version = RoutineVersion(today, "每周待办", (0L..4L).map { from.plusDays(it).dayOfWeek.value }.toSet())
+            val rule = RoutineRule("browsed-week", now, listOf(version))
+            repository.saveRoutine(owner, rule, now)
+            fun id(date: LocalDate) = RoutinePlanner.occurrenceId(rule.id, date)
+            suspend fun taskRecord(date: LocalDate) = dao.find(owner, RecordKind.TASK, id(date))
+            suspend fun task(date: LocalDate): WorkTask {
+                val raw = requireNotNull(taskRecord(date))
+                val metadata = requireNotNull(dao.find(owner, RecordKind.SETTINGS, RecordCodec.taskMetadataId(raw.id)))
+                return RecordCodec.withMetadata(RecordCodec.task(raw), RecordCodec.taskMetadata(metadata))
+            }
+            assertNull(taskRecord(from))
+            val window = from..from.plusDays(6)
+            assertTrue(repository.refreshAgenda(owner, now, calendarRange = window).changed)
+            assertNull(taskRecord(from.minusWeeks(1)))
+            assertNull(taskRecord(from.plusDays(5)))
+            assertNull(taskRecord(from.plusWeeks(1)))
+            assertEquals(from, task(from).routineDate)
+            assertFalse(repository.refreshAgenda(owner, now, calendarRange = window).changed)
+
+            val singleEdit = from.plusDays(1)
+            val completed = from.plusDays(2)
+            val deleted = from.plusDays(3)
+            repository.saveTask(owner, task(singleEdit).copy(title = "仅改这一次"), expected = task(singleEdit))
+            repository.setTaskDone(owner, id(completed), true, now)
+            repository.deleteTask(owner, task(deleted))
+
+            val edited = rule.copy(versions = listOf(version.copy(title = "更新后的待办",
+                start = LocalTime.of(8, 0), end = LocalTime.of(8, 30))))
+            repository.saveRoutine(owner, edited, now, rule)
+            assertEquals("更新后的待办", task(from).title)
+            assertEquals(from.atTime(8, 30).atZone(AppTime.zone).toInstant(), task(from).endAt)
+            assertEquals("仅改这一次", task(singleEdit).title)
+            assertTrue(task(completed).done)
+            assertEquals("每周待办", task(completed).title)
+            assertTrue(taskRecord(deleted)!!.deleted)
+
+            val paused = edited.copy(versions = listOf(edited.current.copy(enabled = false)))
+            repository.saveRoutine(owner, paused, now, edited)
+            assertTrue(taskRecord(from)!!.deleted)
+            assertFalse(taskRecord(singleEdit)!!.deleted)
+            assertFalse(taskRecord(completed)!!.deleted)
+            repository.saveRoutine(owner, edited, now, paused)
+            assertFalse(taskRecord(from)!!.deleted)
+            assertTrue(taskRecord(deleted)!!.deleted)
+            assertFalse(repository.refreshAgenda(owner, now, calendarRange = window).changed)
+        } finally { database.close() }
+    }
+
     @Test fun weekdayRangesCreateAndUpdateOnlyTheirOwnOccurrences() = runBlocking {
         val app = ApplicationProvider.getApplicationContext<ManmanApplication>()
         val database = Room.inMemoryDatabaseBuilder(app, ManmanDatabase::class.java).build()

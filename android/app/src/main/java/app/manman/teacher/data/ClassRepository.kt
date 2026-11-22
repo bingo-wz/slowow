@@ -399,9 +399,9 @@ class ClassRepository(private val database: ManmanDatabase) {
     }
 
     suspend fun refreshAgenda(accountId: String, openedAt: Instant, celebrateToday: Boolean = true,
-        regenerate: Boolean = true): AgendaRefreshResult =
+        regenerate: Boolean = true, calendarRange: ClosedRange<LocalDate>? = null): AgendaRefreshResult =
         database.withTransaction {
-            val generated = if (regenerate) reconcileRoutines(accountId, openedAt) else emptySet()
+            val generated = if (regenerate) reconcileRoutines(accountId, openedAt, calendarRange) else emptySet()
             val today = openedAt.atZone(AppTime.zone).toLocalDate()
             var todayCompleted = 0
             var earlierCompleted = 0
@@ -432,51 +432,61 @@ class ClassRepository(private val database: ManmanDatabase) {
             AgendaRefreshResult(changed, todayCompleted, earlierCompleted, todayTaskIds)
         }
 
-    private suspend fun reconcileRoutines(accountId: String, now: Instant): Set<String> {
+    private suspend fun reconcileRoutines(accountId: String, now: Instant,
+        calendarRange: ClosedRange<LocalDate>? = null): Set<String> {
         val snapshot = dao.snapshot(accountId)
         val today = now.atZone(AppTime.zone).toLocalDate()
-        val horizon = today.plusDays(7)
-        val rules = snapshot.filter { it.kind == RecordKind.SETTINGS && it.id.startsWith(RecordCodec.ROUTINE_PREFIX) &&
-            !it.deleted && it.conflictVersion == null }.mapNotNull { runCatching { RecordCodec.routine(it) }.getOrNull() }
+        val horizon = today.plusDays(RoutinePlanner.PREGENERATE_DAYS)
+        val ruleRecords = snapshot.filter { it.kind == RecordKind.SETTINGS && it.id.startsWith(RecordCodec.ROUTINE_PREFIX) &&
+            it.conflictVersion == null }
+        val rules = ruleRecords.filterNot(LocalRecord::deleted)
+            .mapNotNull { runCatching { RecordCodec.routine(it) }.getOrNull() }.associateBy(RoutineRule::id)
+        val deletedRuleIds = ruleRecords.filter(LocalRecord::deleted)
+            .map { it.id.removePrefix(RecordCodec.ROUTINE_PREFIX) }.toSet()
         val records = snapshot.filter { it.kind == RecordKind.TASK }.associateBy(LocalRecord::id)
         val metadata = snapshot.filter { it.kind == RecordKind.SETTINGS && it.id.startsWith(RecordCodec.TASK_METADATA_PREFIX) }
             .associateBy(LocalRecord::id)
         val generated = mutableSetOf<String>()
         val planned = mutableMapOf<String, RoutineOccurrence>()
-        rules.forEach { rule ->
+        rules.values.forEach { rule ->
             val firstDate = rule.versions.minOf(RoutineVersion::effectiveFrom)
-            val ruleHorizon = maxOf(horizon, firstDate.plusDays(7))
-            RoutinePlanner.occurrences(rule, firstDate, ruleHorizon).forEach { occurrence ->
+            val ruleHorizon = maxOf(horizon, firstDate.plusDays(RoutinePlanner.PREGENERATE_DAYS))
+            val baseline = RoutinePlanner.occurrences(rule, firstDate, ruleHorizon)
+            // 翻到较远的周或月，只补当前查看的日期范围。
+            val onCalendar = if (calendarRange != null && calendarRange.endInclusive > ruleHorizon) {
+                RoutinePlanner.occurrences(rule, maxOf(calendarRange.start, ruleHorizon.plusDays(1)), calendarRange.endInclusive)
+            } else emptyList()
+            (baseline + onCalendar).forEach { occurrence ->
                 planned[occurrence.id] = occurrence
-                val record = records[occurrence.id]
-                if (record == null) {
+                if (occurrence.id !in records) {
                     writeTask(accountId, occurrenceTask(occurrence))
                     generated.add(occurrence.id)
-                } else if (record.conflictVersion == null) {
-                    val task = snapshotTask(record, metadata) ?: return@forEach
-                    if (occurrence.date < today || task.done || task.routineException || task.timingNeedsReview) return@forEach
-                    if (record.deleted && !task.removedByRule) return@forEach
-                    val replacement = task.copy(title = occurrence.version.title, dueAt = occurrence.start, endAt = occurrence.end,
-                        dueDate = occurrence.date, showMealList = occurrence.version.showMealList, removedByRule = false,
-                        autoCompletionSuppressed = if (task.dueAt != occurrence.start || task.endAt != occurrence.end) false
-                            else task.autoCompletionSuppressed)
-                    if (record.deleted || replacement != task) {
-                        writeTask(accountId, replacement)
-                        generated.add(occurrence.id)
-                    }
                 }
             }
         }
-        val activeRuleIds = rules.map(RoutineRule::id).toSet()
-        snapshot.filter { it.kind == RecordKind.TASK && !it.deleted && it.conflictVersion == null }.forEach { record ->
+        records.values.filter { it.conflictVersion == null }.forEach { record ->
             val task = snapshotTask(record, metadata) ?: return@forEach
-            val date = task.routineDate ?: return@forEach
-            val rule = task.routineId?.takeIf { it in activeRuleIds } ?: return@forEach
-            if (!date.isBefore(today) && !task.done && !task.routineException && !task.timingNeedsReview &&
-                task.id !in planned && (date <= horizon || rules.first { it.id == rule }.let {
-                    RoutinePlanner.occurrences(it, date, date).isEmpty()
-                })) {
-                writeTask(accountId, task.copy(removedByRule = true), deleted = true)
+            val occurrence = planned[record.id]
+            val date = occurrence?.date ?: task.routineDate ?: return@forEach
+            if (date < today || task.done || task.routineException || task.timingNeedsReview) return@forEach
+            if (record.deleted && !task.removedByRule) return@forEach
+
+            val rule = task.routineId?.let(rules::get)
+            if (occurrence == null && rule == null && task.routineId !in deletedRuleIds) return@forEach
+            val expected = occurrence ?: rule?.let { RoutinePlanner.occurrences(it, date, date).singleOrNull() }
+            if (expected == null) {
+                if (!record.deleted) {
+                    writeTask(accountId, task.copy(removedByRule = true), deleted = true)
+                    generated.add(task.id)
+                }
+                return@forEach
+            }
+            val timingChanged = task.dueAt != expected.start || task.endAt != expected.end
+            val replacement = task.copy(title = expected.version.title, dueAt = expected.start, endAt = expected.end,
+                dueDate = date, showMealList = expected.version.showMealList, removedByRule = false,
+                autoCompletionSuppressed = task.autoCompletionSuppressed && !timingChanged)
+            if (record.deleted || replacement != task) {
+                writeTask(accountId, replacement)
                 generated.add(task.id)
             }
         }

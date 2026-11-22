@@ -9,6 +9,8 @@ import app.manman.teacher.auth.AuthException
 import app.manman.teacher.auth.VerificationRequest
 import app.manman.teacher.data.ClassRepository
 import app.manman.teacher.data.ForestRecords
+import app.manman.teacher.domain.AppTime
+import app.manman.teacher.domain.RoutinePlanner
 import app.manman.teacher.domain.ForestProfile
 import app.manman.teacher.domain.ForestInteraction
 import app.manman.teacher.data.LocalRecord
@@ -99,6 +101,7 @@ class MainViewModel(private val application: ManmanApplication) : ViewModel() {
     private var agendaRefresh: Job? = null
     private var agendaRefreshRequested = false
     private var agendaRegenerationRequested = false
+    private var agendaCalendarRange: ClosedRange<LocalDate>? = null
     private var manualSync: Job? = null
     private var reminderRefresh: Job? = null
     private var scheduleJob: Job? = null
@@ -422,6 +425,14 @@ class MainViewModel(private val application: ManmanApplication) : ViewModel() {
         }
     }
 
+    fun setAgendaCalendarRange(range: ClosedRange<LocalDate>?) {
+        val today = LocalDate.now(AppTime.zone)
+        val futureRange = range?.takeIf { it.endInclusive > today.plusDays(RoutinePlanner.PREGENERATE_DAYS) }
+        if (futureRange == agendaCalendarRange) return
+        agendaCalendarRange = futureRange
+        if (futureRange != null) requestAgendaRefresh(regenerate = true)
+    }
+
     private fun requestAgendaRefresh(regenerate: Boolean) {
         if (openedAt == null || state.value.accountId == null || !autoCompletionReady) return
         agendaRefreshRequested = true
@@ -435,7 +446,9 @@ class MainViewModel(private val application: ManmanApplication) : ViewModel() {
                 val open = openedAt ?: break
                 val account = state.value.accountId ?: break
                 try {
-                    val result = agendaMutex.withLock { repository.refreshAgenda(account, open, regenerate = regenerate) }
+                    val result = agendaMutex.withLock {
+                        repository.refreshAgenda(account, open, regenerate = regenerate, calendarRange = agendaCalendarRange)
+                    }
                     if (result.todayCompleted > 0 && openedAt != null && state.value.accountId == account) {
                         mutableTaskCompletions.tryEmit(TaskCompletionEvent(result.todayTaskIds))
                     }

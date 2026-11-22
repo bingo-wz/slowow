@@ -18,6 +18,8 @@ data class RoutineOccurrence(
 )
 
 object RoutinePlanner {
+    const val PREGENERATE_DAYS = 7L
+
     fun occurrenceId(ruleId: String, day: LocalDate): String =
         UUID.nameUUIDFromBytes("routine:$ruleId:$day".toByteArray(Charsets.UTF_8)).toString()
 

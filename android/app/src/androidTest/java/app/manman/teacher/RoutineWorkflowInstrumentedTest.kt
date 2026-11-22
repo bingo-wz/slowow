@@ -1,12 +1,14 @@
 package app.manman.teacher
 
 import android.graphics.Rect
+import android.os.Build
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
+import androidx.test.uiautomator.BySelector
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.UiObject2
 import androidx.test.uiautomator.Until
@@ -15,8 +17,11 @@ import app.manman.teacher.auth.SecureSessionStore
 import app.manman.teacher.data.ClassRepository
 import app.manman.teacher.data.RecordCodec
 import app.manman.teacher.data.RecordKind
+import app.manman.teacher.data.RoutineRule
+import app.manman.teacher.data.RoutineVersion
 import app.manman.teacher.data.WorkTask
 import app.manman.teacher.domain.AppTime
+import app.manman.teacher.domain.RoutinePlanner
 import app.manman.teacher.domain.Student
 import app.manman.teacher.fonts.AppTextSize
 import kotlinx.coroutines.delay
@@ -25,6 +30,7 @@ import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -32,6 +38,9 @@ import org.junit.runner.RunWith
 import java.io.File
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalTime
+import java.time.YearMonth
+import java.util.regex.Pattern
 import java.util.UUID
 
 @RunWith(AndroidJUnit4::class)
@@ -423,6 +432,60 @@ class RoutineWorkflowInstrumentedTest {
             if (oldScale == "null" || oldScale.isBlank()) device.executeShellCommand("settings delete system font_scale")
             else device.executeShellCommand("settings put system font_scale $oldScale")
         }
+    }
+
+    @Test fun weeklyAndMonthlyCalendarsShowRepeatsBeyondTheFirstSevenDaysOffline() = runBlocking {
+        assumeTrue(InstrumentationRegistry.getArguments().getString("teacherFixture") == "1")
+        val app = ApplicationProvider.getApplicationContext<ManmanApplication>()
+        app.auth.restore()
+        val account = requireNotNull(app.auth.session.value?.accountId)
+        require(account.startsWith("teacher-fixture-"))
+        val now = Instant.now()
+        val today = now.atZone(AppTime.zone).toLocalDate()
+        val title = "虚构的每周固定待办"
+        val rule = RoutineRule("calendar-window", now, listOf(RoutineVersion(today.plusDays(1), title,
+            setOf(today.dayOfWeek.value), LocalTime.of(8, 0), LocalTime.of(8, 30))))
+        ClassRepository(app.database).saveRoutine(account, rule, now)
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        val weekDate = today.plusWeeks(3)
+        val targetMonth = YearMonth.from(today).plusMonths(2)
+        val monthDate = generateSequence(targetMonth.atDay(1)) { it.plusDays(1) }
+            .first { it.dayOfWeek == today.dayOfWeek }
+        fun dayLabel(date: LocalDate) = "${date.year}年${date.monthValue}月${date.dayOfMonth}日 "
+        assertNull(app.database.records().find(account, RecordKind.TASK, RoutinePlanner.occurrenceId(rule.id, weekDate)))
+        assertNull(app.database.records().find(account, RecordKind.TASK, RoutinePlanner.occurrenceId(rule.id, monthDate)))
+        suspend fun findCurrent(selector: BySelector): UiObject2 = withTimeout(10_000) {
+            val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+            var match: UiObject2? = null
+            while (match == null) {
+                // 连续翻页时刷新无障碍树，避免读到前一页的日期。
+                if (Build.VERSION.SDK_INT >= 34) automation.clearCache()
+                match = device.findObject(selector)
+                if (match == null) delay(100)
+            }
+            match
+        }
+        ActivityScenario.launch(MainActivity::class.java).use {
+            findCurrent(By.text("今日待办"))
+            repeat(3) { index ->
+                val day = today.plusWeeks(index + 1L)
+                findCurrent(By.desc("下一周")).click()
+                findCurrent(By.text("${day.monthValue}月${day.dayOfMonth}日待办"))
+            }
+            findCurrent(By.text(title))
+            findCurrent(By.text("08:00—08:30"))
+            findCurrent(By.desc("全部待办")).click()
+            repeat(2) { index ->
+                findCurrent(By.desc("下个月")).click()
+                val month = YearMonth.from(today).plusMonths(index + 1L)
+                findCurrent(By.text("${month.year}年${month.monthValue}月"))
+            }
+            val badge = By.desc(Pattern.compile(Pattern.quote(dayLabel(monthDate)) + ".*1项待处理，0项已完成"))
+            findCurrent(badge).click()
+            findCurrent(By.text(title))
+            findCurrent(By.text("08:00—08:30"))
+        }
+        Unit
     }
 
     private fun byText(device: UiDevice, text: String): UiObject2 =
