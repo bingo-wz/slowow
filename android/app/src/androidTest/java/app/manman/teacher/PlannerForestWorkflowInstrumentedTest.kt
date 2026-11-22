@@ -84,20 +84,28 @@ class PlannerForestWorkflowInstrumentedTest {
     }
 
     @Test fun reasonPersistsWhenEditingLeave() = runBlocking {
-        val (app, owner) = session()
+        assumeTrue(InstrumentationRegistry.getArguments().getString("teacherFixture") == "1")
+        val app = ApplicationProvider.getApplicationContext<ManmanApplication>()
+        app.auth.restore()
+        val owner = requireNotNull(app.auth.session.value?.accountId)
+        require(owner.startsWith("teacher-fixture-"))
         val today = LocalDate.now(AppTime.zone)
         val repo = ClassRepository(app.database)
         repo.saveStudent(owner, Student("fixture", "虚构请假同学"))
         repo.saveLeave(owner, Leave("reason", "fixture", today, today, LeavePeriod.MORNING, Instant.now()))
         ActivityScenario.launch(MainActivity::class.java).use {
             find(By.text("记录")).click()
-            visible(By.text("虚构请假同学")).click()
+            find(By.text("虚构请假同学")).click()
             find(By.text("修改")).click()
-            val input = visible(By.clazz("android.widget.EditText"))
-            input.text = "家中有事"
+            val reasonField = By.clazz("android.widget.EditText")
+            click(reasonField)
+            find(reasonField).text = "家中有事"
+            find(By.text("家中有事"))
             device.pressBack()
             device.wait(Until.findObject(By.text("继续编辑")), 1_200)?.click()
-            visible(By.text("保存请假")).click()
+            device.waitForIdle()
+            click(By.text("保存请假"))
+            find(By.text("请假已记录。"))
             withTimeout(10_000) {
                 while (RecordCodec.leave(app.database.records().find(owner, RecordKind.LEAVE, "reason")!!).reason != "家中有事") delay(100)
             }
