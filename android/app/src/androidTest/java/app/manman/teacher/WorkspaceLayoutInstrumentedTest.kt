@@ -75,9 +75,15 @@ class WorkspaceLayoutInstrumentedTest {
                     assertFalse(Rect.intersects(all, add))
                     assertTrue(device.takeScreenshot(File(app.cacheDir, "workspace-home-$scale.png")))
                     device.findObject(By.text("记录")).click()
-                    assertTrue(device.wait(Until.hasObject(By.text("不在校用餐名单")), 10_000))
+                    assertTrue(device.wait(Until.hasObject(By.desc("下个月")), 10_000))
                     assertTrue(device.takeScreenshot(File(app.cacheDir, "workspace-records-$scale.png")))
-                    device.findObject(By.desc("复制今日不在校用餐名单")).click()
+                    val copyButton = By.desc("复制今日不在校用餐名单")
+                    for (attempt in 1..5) {
+                        if (device.wait(Until.hasObject(copyButton), 800)) break
+                        device.swipe(device.displayWidth / 2, device.displayHeight * 3 / 4,
+                            device.displayWidth / 2, device.displayHeight / 3, 20)
+                    }
+                    device.wait(Until.findObject(copyButton), 5_000).click()
                     val clipboard = app.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                     assertEquals("测试甲、测试乙", clipboard.primaryClip!!.getItemAt(0).coerceToText(app).toString())
                 }

@@ -26,11 +26,12 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.time.Instant
 import java.time.LocalDate
+import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 
 @RunWith(AndroidJUnit4::class)
-class LeaveDateGroupingInstrumentedTest {
-    @Test fun dateGroupsRemainUsableWithLargeSystemText() = runBlocking {
+class RecordsCalendarInstrumentedTest {
+    @Test fun calendarRemainsUsableWithLargeSystemText() = runBlocking {
         assumeTrue(InstrumentationRegistry.getArguments().getString("teacherFixture") == "1")
         val app = ApplicationProvider.getApplicationContext<ManmanApplication>()
         app.auth.restore()
@@ -49,17 +50,16 @@ class LeaveDateGroupingInstrumentedTest {
             if (kotlin.math.abs(app.resources.configuration.fontScale - 2f) < 0.01f) return@repeat
             SystemClock.sleep(100)
         }
-        val date = "请假日期 " + today.format(DateTimeFormatter.ofPattern("yyyy年M月d日"))
         try {
             ActivityScenario.launch(MainActivity::class.java).use {
                 text(device, "记录").click()
-                val heading = scrollToDescription(device, date)
-                assertTrue(heading.visibleBounds.height() > 0)
-                heading.click()
-                assertTrue(device.wait(Until.gone(By.text("虚构大字学生")), 5_000))
-                scrollToDescription(device, date).click()
+                val date = dateCell(device, today)
+                assertTrue(date.visibleBounds.height() > 0)
+                assertFalse(device.hasObject(By.text("虚构大字学生")))
+                date.click()
                 scrollTo(device, "虚构大字学生")
-                assertTrue(device.hasObject(By.text("虚构大字学生")))
+                device.pressBack()
+                assertTrue(dateCell(device, today).visibleBounds.height() > 0)
             }
         } finally {
             cleanup(app, account, listOf(RecordKind.STUDENT to "large-group-student", RecordKind.LEAVE to "large-group-leave"))
@@ -69,7 +69,7 @@ class LeaveDateGroupingInstrumentedTest {
         }
     }
 
-    @Test fun groupsByStartDateAndKeepsCrossDayLeaveAsOneRecord() = runBlocking {
+    @Test fun datesShowTheirLeaveAndMarkingRecords() = runBlocking {
         assumeTrue(InstrumentationRegistry.getArguments().getString("teacherFixture") == "1")
         val app = ApplicationProvider.getApplicationContext<ManmanApplication>()
         app.auth.restore()
@@ -77,7 +77,7 @@ class LeaveDateGroupingInstrumentedTest {
         require(account.startsWith("teacher-fixture-"))
         val repository = ClassRepository(app.database)
         val today = LocalDate.now(AppTime.zone)
-        val future = today.plusDays(2)
+        val future = YearMonth.from(today).plusMonths(1).atDay(5)
         val past = today.minusDays(2)
         val names = listOf("虚构今天甲", "虚构今天乙", "虚构未来", "虚构过去")
         names.forEachIndexed { index, name -> repository.saveStudent(account, Student("group-$index", name, position = index)) }
@@ -93,26 +93,37 @@ class LeaveDateGroupingInstrumentedTest {
         val oldAppSize = app.textSizes.state.value
         app.textSizes.select(AppTextSize.STANDARD)
         device.executeShellCommand("settings put system font_scale 1.0")
-        fun dateLabel(day: LocalDate) = "请假日期 " + day.format(DateTimeFormatter.ofPattern("yyyy年M月d日"))
         try {
             ActivityScenario.launch(MainActivity::class.java).use {
                 text(device, "记录").click()
-                assertTrue(device.wait(Until.hasObject(By.text("虚构今天甲")), 10_000))
-                assertTrue(device.hasObject(By.text("虚构今天乙")))
+                val date = dateCell(device, today)
+                assertTrue(date.contentDescription.contains("2条请假，1条班级标记"))
+                assertFalse(device.hasObject(By.text("虚构今天甲")))
+                date.click()
+                scrollTo(device, "虚构今天甲")
+                scrollTo(device, "虚构今天乙")
+                scrollTo(device, "虚构班级事项")
                 assertFalse(device.hasObject(By.text("虚构未来")))
                 assertFalse(device.hasObject(By.text("虚构过去")))
-                val end = future.plusDays(2).format(DateTimeFormatter.ofPattern(if (future.year == future.plusDays(2).year) "M月d日" else "yyyy年M月d日"))
-                description(device, dateLabel(future)).click()
-                assertTrue(device.wait(Until.hasObject(By.text("虚构未来")), 5_000))
-                assertTrue(device.hasObject(By.text("至 $end · 全天")))
-                description(device, dateLabel(future)).click()
-                assertTrue(device.wait(Until.gone(By.text("虚构未来")), 5_000))
-                description(device, dateLabel(today)).click()
-                assertTrue(device.wait(Until.gone(By.text("虚构今天甲")), 5_000))
-                description(device, dateLabel(today)).click()
-                assertTrue(device.wait(Until.hasObject(By.text("虚构今天甲")), 5_000))
-                scrollTo(device, "虚构班级事项")
-                assertTrue(device.hasObject(By.text("虚构班级事项")))
+
+                device.pressBack()
+                dateCell(device, today)
+                if (today.month == today.plusDays(1).month) {
+                    dateCell(device, today.plusDays(1)).click()
+                    assertTrue(device.wait(Until.hasObject(By.text("当天没有请假记录。")), 5_000))
+                    device.pressBack()
+                }
+                device.wait(Until.findObject(By.desc("下个月")), 5_000).click()
+                val continuing = dateCell(device, future.plusDays(1))
+                assertTrue(continuing.contentDescription.contains("1条请假，0条班级标记"))
+                continuing.click()
+                scrollTo(device, "虚构未来")
+                val dateFormat = DateTimeFormatter.ofPattern("M月d日")
+                assertTrue(device.hasObject(By.text("${future.format(dateFormat)}至${future.plusDays(2).format(dateFormat)} · 全天")))
+
+                device.pressBack()
+                val nextMonth = dateCell(device, future)
+                assertTrue(nextMonth.contentDescription.contains("1条请假，0条班级标记"))
             }
         } finally {
             cleanup(app, account, (0..3).map { RecordKind.STUDENT to "group-$it" } +
@@ -127,9 +138,6 @@ class LeaveDateGroupingInstrumentedTest {
     private fun text(device: UiDevice, label: String): UiObject2 =
         device.wait(Until.findObject(By.text(label)), 10_000) ?: throw AssertionError("未找到文字：$label")
 
-    private fun description(device: UiDevice, label: String): UiObject2 =
-        device.wait(Until.findObject(By.desc(label)), 10_000) ?: throw AssertionError("未找到日期：$label")
-
     private fun scrollTo(device: UiDevice, label: String) {
         repeat(6) {
             if (device.wait(Until.hasObject(By.text(label)), 1_000)) return
@@ -138,9 +146,10 @@ class LeaveDateGroupingInstrumentedTest {
         throw AssertionError("未找到文字：$label")
     }
 
-    private fun scrollToDescription(device: UiDevice, label: String): UiObject2 {
+    private fun dateCell(device: UiDevice, day: LocalDate): UiObject2 {
+        val label = day.format(DateTimeFormatter.ofPattern("yyyy年M月d日")) + " "
         repeat(6) {
-            device.wait(Until.findObject(By.desc(label)), 1_000)?.let { return it }
+            device.wait(Until.findObject(By.descStartsWith(label)), 1_000)?.let { return it }
             device.swipe(device.displayWidth / 2, device.displayHeight * 3 / 4, device.displayWidth / 2, device.displayHeight / 3, 20)
         }
         throw AssertionError("未找到日期：$label")

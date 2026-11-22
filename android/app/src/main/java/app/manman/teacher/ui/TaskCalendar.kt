@@ -20,8 +20,10 @@ import java.time.LocalDate
 import java.time.YearMonth
 
 internal data class CalendarCount(val pending: Int, val completed: Int) {
-    val total get() = pending + completed
+    fun badge() = CalendarBadge(pending + completed, "${pending}项待处理，${completed}项已完成", pending > 0)
 }
+
+internal data class CalendarBadge(val count: Int, val description: String, val emphasized: Boolean = true)
 
 @Composable
 internal fun rememberTaskCounts(tasks: List<WorkTask>): Map<LocalDate, CalendarCount> = remember(tasks) {
@@ -39,15 +41,15 @@ internal fun RollingTaskCalendar(today: LocalDate, selected: LocalDate, counts: 
         val width = ((maxWidth - 32.dp) / 5).coerceAtLeast(48.dp)
         LazyRow(state = scroll, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(dates, key = { it.toEpochDay() }) { day ->
-                CalendarDate(day, today, selected, counts[day], Modifier.width(width), showWeekday = true) { onSelectDay(day) }
+                CalendarDate(day, today, selected, counts[day]?.badge(), Modifier.width(width), showWeekday = true) { onSelectDay(day) }
             }
         }
     }
 }
 
 @Composable
-internal fun TaskMonthCalendar(month: YearMonth, today: LocalDate, selected: LocalDate?,
-    counts: Map<LocalDate, CalendarCount>, onMonth: (YearMonth) -> Unit, onSelectDay: (LocalDate?) -> Unit) {
+internal fun MonthCalendar(month: YearMonth, today: LocalDate,
+    badges: Map<LocalDate, CalendarBadge>, onMonth: (YearMonth) -> Unit, onSelectDay: (LocalDate) -> Unit) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
             itemVerticalAlignment = Alignment.CenterVertically) {
@@ -73,8 +75,8 @@ internal fun TaskMonthCalendar(month: YearMonth, today: LocalDate, selected: Loc
                     if (number !in 1..month.lengthOfMonth()) Spacer(Modifier.weight(1f))
                     else {
                         val day = month.atDay(number)
-                        CalendarDate(day, today, selected, counts[day], Modifier.weight(1f)) {
-                            onSelectDay(day.takeUnless { it == selected })
+                        CalendarDate(day, today, null, badges[day], Modifier.weight(1f)) {
+                            onSelectDay(day)
                         }
                     }
                 }
@@ -84,12 +86,12 @@ internal fun TaskMonthCalendar(month: YearMonth, today: LocalDate, selected: Loc
 }
 
 @Composable
-private fun CalendarDate(day: LocalDate, today: LocalDate, selectedDay: LocalDate?, count: CalendarCount?,
+private fun CalendarDate(day: LocalDate, today: LocalDate, selectedDay: LocalDate?, badge: CalendarBadge?,
     modifier: Modifier, showWeekday: Boolean = false, onClick: () -> Unit) {
     val picked = day == selectedDay
     val colors = MaterialTheme.colorScheme
     val label = "${day.year}年${day.monthValue}月${day.dayOfMonth}日 ${weeklyDayNames[day.dayOfWeek.value - 1]}"
-    val summary = count?.let { "，${it.pending}项待处理，${it.completed}项已完成" } ?: ""
+    val summary = badge?.let { "，${it.description}" }.orEmpty()
     Column(modifier.heightIn(min = 48.dp)
         .background(if (picked) colors.primaryContainer else if (day == today) colors.surfaceContainerHigh else colors.surfaceContainerLow,
             MaterialTheme.shapes.small)
@@ -100,12 +102,12 @@ private fun CalendarDate(day: LocalDate, today: LocalDate, selectedDay: LocalDat
         if (showWeekday) Text(if (day == today) "今天" else weeklyDayNames[day.dayOfWeek.value - 1],
             style = MaterialTheme.typography.labelSmall, maxLines = 1)
         Text(day.dayOfMonth.toString(), style = MaterialTheme.typography.bodyMedium, maxLines = 1)
-        val badge = when {
-            count == null || count.total == 0 -> " "
-            count.total > 99 -> "99+"
-            else -> count.total.toString()
+        val labelText = when {
+            badge == null || badge.count == 0 -> " "
+            badge.count > 99 -> "99+"
+            else -> badge.count.toString()
         }
-        Text(badge, style = MaterialTheme.typography.labelSmall, maxLines = 1,
-            color = if ((count?.pending ?: 0) > 0) colors.primary else colors.onSurfaceVariant)
+        Text(labelText, style = MaterialTheme.typography.labelSmall, maxLines = 1,
+            color = if (badge?.emphasized == true) colors.primary else colors.onSurfaceVariant)
     }
 }

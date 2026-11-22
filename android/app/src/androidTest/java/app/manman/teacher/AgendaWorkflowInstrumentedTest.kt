@@ -111,7 +111,9 @@ class AgendaWorkflowInstrumentedTest {
         val account = account(app)
         val repository = ClassRepository(app.database)
         val id = "marking-${UUID.randomUUID()}"
-        val savedAt = Instant.parse("2026-10-05T02:00:00Z")
+        val markedDay = LocalDate.now(AppTime.zone).minusMonths(1).withDayOfMonth(5)
+        val dateLabel = markedDay.format(DateTimeFormatter.ofPattern("yyyy年M月d日"))
+        val savedAt = markedDay.atTime(10, 0).atZone(AppTime.zone).toInstant()
         val original = MarkingRecord(id, "虚构班级事项", "有", "没有", savedAt, listOf(
             MarkingStudent("a", "虚构甲", true), MarkingStudent("b", "虚构乙", false), MarkingStudent("c", "虚构丙", true)))
         repository.saveMarking(account, original)
@@ -122,11 +124,11 @@ class AgendaWorkflowInstrumentedTest {
         try {
             ActivityScenario.launch(MainActivity::class.java).use {
                 byText(device, "记录").click()
-                scrollTo(device, "2026年10月5日").click()
+                byDescription(device, "上个月").click()
                 assertTrue(device.wait(Until.gone(By.text("虚构班级事项")), 5_000))
-                byText(device, "2026年10月5日").click()
+                device.wait(Until.findObject(By.descStartsWith("$dateLabel ")), 10_000).click()
                 scrollTo(device, "虚构班级事项").click()
-                assertTrue(device.wait(Until.hasObject(By.text("2026年10月5日 10:00")), 10_000))
+                assertTrue(device.wait(Until.hasObject(By.text("$dateLabel 10:00")), 10_000))
                 val clipboard = app.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 byDescription(device, "复制有名单").click()
                 assertEquals("虚构甲、虚构丙", clipboard.primaryClip!!.getItemAt(0).coerceToText(app).toString())

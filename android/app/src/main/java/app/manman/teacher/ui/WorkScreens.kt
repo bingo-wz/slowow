@@ -82,7 +82,8 @@ fun WorkScreen(state: MainUiState, viewModel: MainViewModel, showNotices: Boolea
             val counts = rememberTaskCounts(state.tasks)
             val header: @Composable () -> Unit = {
                 if (selectedDay == null && !undated) {
-                    TaskMonthCalendar(month, today, null, counts, onMonth, onSelectDay)
+                    val badges = remember(counts) { counts.mapValues { it.value.badge() } }
+                    MonthCalendar(month, today, badges, onMonth, onSelectDay)
                     val count = state.tasks.count { app.manman.teacher.domain.TaskOrdering.date(it) == null }
                     if (count > 0) FeedbackTextButton(onClick = onUndated) { Text("未安排日期 · $count 项") }
                 } else {

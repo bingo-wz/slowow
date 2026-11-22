@@ -39,6 +39,8 @@ class LeaveDeletionWorkflowInstrumentedTest {
         ActivityScenario.launch(MainActivity::class.java).use {
             assertTrue(device.wait(Until.hasObject(By.text("记录")), 15_000))
             device.findObject(By.text("记录")).click()
+            val date = "${today.year}年${today.monthValue}月${today.dayOfMonth}日 "
+            device.wait(Until.findObject(By.descStartsWith(date)), 10_000).click()
             assertTrue(device.wait(Until.hasObject(By.text("虚构学生甲")), 10_000))
             device.findObject(By.text("虚构学生甲")).click()
             assertTrue(device.wait(Until.hasObject(By.text("删除记录")), 5_000))
