@@ -26,7 +26,6 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.time.Instant
 import java.time.LocalDate
-import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 
 @RunWith(AndroidJUnit4::class)
@@ -55,11 +54,8 @@ class RecordsCalendarInstrumentedTest {
                 text(device, "记录").click()
                 val date = dateCell(device, today)
                 assertTrue(date.visibleBounds.height() > 0)
-                assertFalse(device.hasObject(By.text("虚构大字学生")))
-                date.click()
+                text(device, "${shortDate(today)} · 今天")
                 scrollTo(device, "虚构大字学生")
-                device.pressBack()
-                assertTrue(dateCell(device, today).visibleBounds.height() > 0)
             }
         } finally {
             cleanup(app, account, listOf(RecordKind.STUDENT to "large-group-student", RecordKind.LEAVE to "large-group-leave"))
@@ -77,15 +73,18 @@ class RecordsCalendarInstrumentedTest {
         require(account.startsWith("teacher-fixture-"))
         val repository = ClassRepository(app.database)
         val today = LocalDate.now(AppTime.zone)
-        val future = YearMonth.from(today).plusMonths(1).atDay(5)
-        val past = today.minusDays(2)
-        val names = listOf("虚构今天甲", "虚构今天乙", "虚构未来", "虚构过去")
+        val weekStart = today.minusDays((today.dayOfWeek.value - 1).toLong())
+        val weekEnd = weekStart.plusDays(6)
+        val otherDay = if (today == weekEnd) today.minusDays(1) else today.plusDays(1)
+        val nextWeekDay = otherDay.plusWeeks(1)
+        val future = nextWeekDay.minusDays(1)
+        val names = listOf("虚构今天甲", "虚构今天乙", "虚构未来", "虚构同周")
         names.forEachIndexed { index, name -> repository.saveStudent(account, Student("group-$index", name, position = index)) }
         val now = Instant.now()
         repository.saveLeave(account, Leave("today-1", "group-0", today, today, LeavePeriod.MORNING, now))
-        repository.saveLeave(account, Leave("today-2", "group-1", today, today.plusDays(1), LeavePeriod.ALL_DAY, now.plusSeconds(1), cancelled = true))
-        repository.saveLeave(account, Leave("future", "group-2", future, future.plusDays(2), LeavePeriod.ALL_DAY, now))
-        repository.saveLeave(account, Leave("past", "group-3", past, past, LeavePeriod.AFTERNOON, now))
+        repository.saveLeave(account, Leave("today-2", "group-1", today, nextWeekDay, LeavePeriod.ALL_DAY, now.plusSeconds(1), cancelled = true))
+        repository.saveLeave(account, Leave("future", "group-2", future, nextWeekDay.plusDays(1), LeavePeriod.ALL_DAY, now))
+        repository.saveLeave(account, Leave("same-week", "group-3", otherDay, otherDay, LeavePeriod.AFTERNOON, now))
         repository.saveMarking(account, MarkingRecord("marking", "虚构班级事项", "有", "没有", now,
             listOf(MarkingStudent("group-0", "虚构今天甲", true))))
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
@@ -97,37 +96,43 @@ class RecordsCalendarInstrumentedTest {
             ActivityScenario.launch(MainActivity::class.java).use {
                 text(device, "记录").click()
                 val date = dateCell(device, today)
+                text(device, "${shortDate(today)} · 今天")
                 assertTrue(date.contentDescription.contains("2条请假，1条班级标记"))
-                assertFalse(device.hasObject(By.text("虚构今天甲")))
-                date.click()
+                assertTrue(device.hasObject(dateSelector(weekStart)))
+                assertTrue(device.hasObject(dateSelector(weekEnd)))
+                assertFalse(device.hasObject(dateSelector(weekStart.minusDays(1))))
+                assertFalse(device.hasObject(dateSelector(weekEnd.plusDays(1))))
                 scrollTo(device, "虚构今天甲")
                 scrollTo(device, "虚构今天乙")
                 scrollTo(device, "虚构班级事项")
                 assertFalse(device.hasObject(By.text("虚构未来")))
-                assertFalse(device.hasObject(By.text("虚构过去")))
+                assertFalse(device.hasObject(By.text("虚构同周")))
 
-                device.pressBack()
+                scrollToCalendar(device)
+                dateCell(device, otherDay).click()
+                text(device, shortDate(otherDay))
                 dateCell(device, today)
-                if (today.month == today.plusDays(1).month) {
-                    dateCell(device, today.plusDays(1)).click()
-                    assertTrue(device.wait(Until.hasObject(By.text("当天没有请假记录。")), 5_000))
-                    device.pressBack()
-                }
-                device.wait(Until.findObject(By.desc("下个月")), 5_000).click()
-                val continuing = dateCell(device, future.plusDays(1))
-                assertTrue(continuing.contentDescription.contains("1条请假，0条班级标记"))
-                continuing.click()
-                scrollTo(device, "虚构未来")
-                val dateFormat = DateTimeFormatter.ofPattern("M月d日")
-                assertTrue(device.hasObject(By.text("${future.format(dateFormat)}至${future.plusDays(2).format(dateFormat)} · 全天")))
+                scrollTo(device, "虚构同周")
+                scrollTo(device, "当天没有班级标记。")
+                assertFalse(device.hasObject(By.text("虚构今天乙")))
 
-                device.pressBack()
-                val nextMonth = dateCell(device, future)
-                assertTrue(nextMonth.contentDescription.contains("1条请假，0条班级标记"))
+                scrollToCalendar(device)
+                device.wait(Until.findObject(By.desc("下一周")), 5_000).click()
+                val continuing = dateCell(device, nextWeekDay)
+                text(device, shortDate(nextWeekDay))
+                assertTrue(continuing.contentDescription.contains("1条请假，0条班级标记"))
+                scrollTo(device, "虚构未来")
+                val dateFormat = DateTimeFormatter.ofPattern(if (future.year == nextWeekDay.plusDays(1).year) "M月d日" else "yyyy年M月d日")
+                assertTrue(device.hasObject(By.text("${future.format(dateFormat)}至${nextWeekDay.plusDays(1).format(dateFormat)} · 全天")))
+
+                text(device, "回到今天").click()
+                text(device, "${shortDate(today)} · 今天")
+                scrollTo(device, "虚构今天甲")
+                scrollTo(device, "虚构班级事项")
             }
         } finally {
             cleanup(app, account, (0..3).map { RecordKind.STUDENT to "group-$it" } +
-                listOf("today-1", "today-2", "future", "past").map { RecordKind.LEAVE to it } +
+                listOf("today-1", "today-2", "future", "same-week").map { RecordKind.LEAVE to it } +
                 listOf(RecordKind.MARKING to "marking"))
             app.textSizes.select(oldAppSize)
             if (oldScale == "null" || oldScale.isBlank()) device.executeShellCommand("settings delete system font_scale")
@@ -146,13 +151,22 @@ class RecordsCalendarInstrumentedTest {
         throw AssertionError("未找到文字：$label")
     }
 
-    private fun dateCell(device: UiDevice, day: LocalDate): UiObject2 {
-        val label = day.format(DateTimeFormatter.ofPattern("yyyy年M月d日")) + " "
+    private fun shortDate(day: LocalDate) = day.format(DateTimeFormatter.ofPattern(
+        if (day.year == LocalDate.now(AppTime.zone).year) "M月d日" else "yyyy年M月d日"
+    ))
+
+    private fun dateSelector(day: LocalDate) =
+        By.descStartsWith(day.format(DateTimeFormatter.ofPattern("yyyy年M月d日")) + " ")
+
+    private fun dateCell(device: UiDevice, day: LocalDate): UiObject2 =
+        device.wait(Until.findObject(dateSelector(day)), 5_000) ?: throw AssertionError("未找到日期：$day")
+
+    private fun scrollToCalendar(device: UiDevice) {
         repeat(6) {
-            device.wait(Until.findObject(By.descStartsWith(label)), 1_000)?.let { return it }
-            device.swipe(device.displayWidth / 2, device.displayHeight * 3 / 4, device.displayWidth / 2, device.displayHeight / 3, 20)
+            if (device.wait(Until.hasObject(By.desc("下一周")), 1_000)) return
+            device.swipe(device.displayWidth / 2, device.displayHeight / 3, device.displayWidth / 2, device.displayHeight * 3 / 4, 20)
         }
-        throw AssertionError("未找到日期：$label")
+        throw AssertionError("未找到周历")
     }
 
     private suspend fun cleanup(app: ManmanApplication, account: String, entries: List<Pair<String, String>>) {

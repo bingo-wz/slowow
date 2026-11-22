@@ -13,11 +13,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.manman.teacher.data.WorkTask
 import app.manman.teacher.domain.TaskOrdering
 import java.time.LocalDate
 import java.time.YearMonth
+import java.time.format.DateTimeFormatter
 
 internal data class CalendarCount(val pending: Int, val completed: Int) {
     fun badge() = CalendarBadge(pending + completed, "${pending}项待处理，${completed}项已完成", pending > 0)
@@ -48,6 +50,46 @@ internal fun RollingTaskCalendar(today: LocalDate, selected: LocalDate, counts: 
 }
 
 @Composable
+internal fun WeekCalendar(dates: List<LocalDate>, today: LocalDate, selected: LocalDate,
+    badges: Map<LocalDate, CalendarBadge>, onSelectDay: (LocalDate) -> Unit) {
+    val start = dates.first()
+    val end = dates.last()
+    val range = remember(start, end, today.year) {
+        val shortFormat = DateTimeFormatter.ofPattern("M月d日")
+        val yearFormat = DateTimeFormatter.ofPattern("yyyy年M月d日")
+        val startLabel = start.format(if (start.year == today.year) shortFormat else yearFormat)
+        val endLabel = end.format(if (end.year == start.year) shortFormat else yearFormat)
+        "$startLabel – $endLabel"
+    }
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            ActionIcon("back", "上一周", { onSelectDay(selected.minusWeeks(1)) })
+            Text(range, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
+            ActionIcon("next", "下一周", { onSelectDay(selected.plusWeeks(1)) })
+        }
+        CalendarWeekdays()
+        Row(Modifier.fillMaxWidth()) {
+            dates.forEach { date ->
+                CalendarDate(date, today, selected, badges[date], Modifier.weight(1f)) {
+                    onSelectDay(date)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CalendarWeekdays() {
+    Row(Modifier.fillMaxWidth()) {
+        weeklyDayNames.forEach { name ->
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                Text(name.last().toString(), style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
+@Composable
 internal fun MonthCalendar(month: YearMonth, today: LocalDate,
     badges: Map<LocalDate, CalendarBadge>, onMonth: (YearMonth) -> Unit, onSelectDay: (LocalDate) -> Unit) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -58,13 +100,7 @@ internal fun MonthCalendar(month: YearMonth, today: LocalDate,
             ActionIcon("next", "下个月", { onMonth(month.plusMonths(1)) })
             FeedbackTextButton(onClick = { onMonth(YearMonth.from(today)); onSelectDay(today) }) { Text("回到今天") }
         }
-        Row(Modifier.fillMaxWidth()) {
-            weeklyDayNames.forEach { name ->
-                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                    Text(name.last().toString(), style = MaterialTheme.typography.bodySmall)
-                }
-            }
-        }
+        CalendarWeekdays()
         val start = month.atDay(1)
         val offset = start.dayOfWeek.value - 1
         val rows = (offset + month.lengthOfMonth() + 6) / 7

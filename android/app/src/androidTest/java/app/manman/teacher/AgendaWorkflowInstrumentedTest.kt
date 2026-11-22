@@ -111,7 +111,7 @@ class AgendaWorkflowInstrumentedTest {
         val account = account(app)
         val repository = ClassRepository(app.database)
         val id = "marking-${UUID.randomUUID()}"
-        val markedDay = LocalDate.now(AppTime.zone).minusMonths(1).withDayOfMonth(5)
+        val markedDay = LocalDate.now(AppTime.zone).minusWeeks(1)
         val dateLabel = markedDay.format(DateTimeFormatter.ofPattern("yyyy年M月d日"))
         val savedAt = markedDay.atTime(10, 0).atZone(AppTime.zone).toInstant()
         val original = MarkingRecord(id, "虚构班级事项", "有", "没有", savedAt, listOf(
@@ -124,9 +124,8 @@ class AgendaWorkflowInstrumentedTest {
         try {
             ActivityScenario.launch(MainActivity::class.java).use {
                 byText(device, "记录").click()
-                byDescription(device, "上个月").click()
                 assertTrue(device.wait(Until.gone(By.text("虚构班级事项")), 5_000))
-                device.wait(Until.findObject(By.descStartsWith("$dateLabel ")), 10_000).click()
+                byDescription(device, "上一周").click()
                 scrollTo(device, "虚构班级事项").click()
                 assertTrue(device.wait(Until.hasObject(By.text("$dateLabel 10:00")), 10_000))
                 val clipboard = app.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager

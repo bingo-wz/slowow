@@ -62,7 +62,6 @@ fun ManmanApp(viewModel: MainViewModel, shared: IncomingShare? = null, openFores
     var markingReturn by rememberSaveable { mutableStateOf(Page.TODAY.name) }
     var homeDay by rememberSaveable { mutableStateOf<LocalDate?>(null) }
     var recordsDay by rememberSaveable { mutableStateOf<LocalDate?>(null) }
-    var recordsMonth by rememberSaveable { mutableStateOf<YearMonth?>(null) }
     var workDay by rememberSaveable { mutableStateOf<LocalDate?>(null) }
     var workMonth by rememberSaveable { mutableStateOf<YearMonth?>(null) }
     var workUndated by rememberSaveable { mutableStateOf(false) }
@@ -127,7 +126,6 @@ fun ManmanApp(viewModel: MainViewModel, shared: IncomingShare? = null, openFores
             pageName = Page.TODAY.name
             homeDay = null
             recordsDay = null
-            recordsMonth = null
             workDay = null
             workMonth = null
             workUndated = false
@@ -169,10 +167,6 @@ fun ManmanApp(viewModel: MainViewModel, shared: IncomingShare? = null, openFores
         go(Page.TASK_EDIT)
     }
     fun back() {
-        if (page == Page.RECORDS && recordsDay != null) {
-            recordsDay = null
-            return
-        }
         if (page == Page.NOTICE_REVIEW) viewModel.clearNoticeSuggestion()
         if (page == Page.WORK && !showNotices && (workDay != null || workUndated)) {
             workDay = null
@@ -204,7 +198,7 @@ fun ManmanApp(viewModel: MainViewModel, shared: IncomingShare? = null, openFores
             else -> Page.TODAY
         })
     }
-    BackHandler(enabled = state.accountId != null && page != Page.TODAY && (page != Page.RECORDS || recordsDay != null)) { back() }
+    BackHandler(enabled = state.accountId != null && page !in setOf(Page.TODAY, Page.RECORDS)) { back() }
     Scaffold(
         containerColor = MaterialTheme.colorScheme.surface,
         snackbarHost = { SnackbarHost(snackbar) },
@@ -249,8 +243,7 @@ fun ManmanApp(viewModel: MainViewModel, shared: IncomingShare? = null, openFores
                         onMark = { selectedId = ""; markingReturn = Page.RECORDS.name; go(Page.MARKING) }, onMarking = { selectedId = it; go(Page.MARKING_DETAIL) },
                         onMealAbsences = { mealReturn = Page.RECORDS.name; mealDate = it.toString(); go(Page.MEAL_ABSENCES) },
                         onCalendar = { openCalendar(Page.RECORDS, recordsDay) }, onForest = { go(Page.FOREST) },
-                        calendarMonth = recordsMonth, day = recordsDay,
-                        onMonth = { recordsMonth = it; recordsDay = null }, onDay = { recordsDay = it })
+                        selectedDay = recordsDay, onDay = { recordsDay = it })
                     Page.FOREST -> classroomState.SaveableStateProvider("forest:${state.accountId}") {
                         ClassroomForestScreen(state, viewModel, ::back) { go(Page.FOREST_GAME) }
                     }

@@ -14,8 +14,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -43,82 +41,92 @@ import app.manman.teacher.domain.Leave
 import app.manman.teacher.domain.LeavePeriod
 import app.manman.teacher.domain.MealAbsenceRules
 import java.time.LocalDate
-import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 
 @Composable
 fun RecordsScreen(state: MainUiState, viewModel: MainViewModel, onLeave: () -> Unit, onEditLeave: (String) -> Unit,
     onMark: () -> Unit, onMarking: (String) -> Unit, onMealAbsences: (LocalDate) -> Unit,
-    onCalendar: () -> Unit, onForest: () -> Unit, calendarMonth: YearMonth?, day: LocalDate?,
-    onMonth: (YearMonth) -> Unit, onDay: (LocalDate?) -> Unit) {
+    onCalendar: () -> Unit, onForest: () -> Unit, selectedDay: LocalDate?, onDay: (LocalDate?) -> Unit) {
     var selectedLeave by remember { mutableStateOf<Leave?>(null) }
     var deletingLeave by remember { mutableStateOf<Leave?>(null) }
     val names = remember(state.students) { state.students.associate { it.id to it.name } }
     val today = rememberToday()
-    val month = calendarMonth ?: YearMonth.from(today)
-    val mealDay = day ?: today
-    val absentPeople = remember(mealDay, state.students, state.leaves) { MealAbsenceRules.forDate(mealDay, state.students, state.leaves) }
+    val day = selectedDay ?: today
+    val weekStart = day.minusDays((day.dayOfWeek.value - 1).toLong())
+    val dates = remember(weekStart) { (0L..6L).map(weekStart::plusDays) }
+    val absentPeople = remember(day, state.students, state.leaves) { MealAbsenceRules.forDate(day, state.students, state.leaves) }
     val context = LocalContext.current
     val markings = remember(state.markings) { state.markings.groupBy { it.createdAt.atZone(AppTime.zone).toLocalDate() } }
-    val leaves = remember(day, state.leaves) {
-        if (day == null) emptyList() else state.leaves.filter { it.appearsOn(day) }.sortedByDescending(Leave::recordedAt)
+    val leavesByDate = remember(dates, state.leaves) {
+        val leaves = state.leaves.sortedByDescending(Leave::recordedAt)
+        dates.associateWith { date -> leaves.filter { it.appearsOn(date) } }
     }
-    val badges = remember(month, markings, state.leaves) {
-        (1..month.lengthOfMonth()).mapNotNull { number ->
-            val date = month.atDay(number)
-            val leaveCount = state.leaves.count { it.appearsOn(date) }
+    val badges = remember(leavesByDate, markings) {
+        dates.mapNotNull { date ->
+            val leaveCount = leavesByDate.getValue(date).size
             val markingCount = markings[date]?.size ?: 0
             if (leaveCount + markingCount == 0) null else date to CalendarBadge(
                 leaveCount + markingCount, "${leaveCount}条请假，${markingCount}条班级标记")
         }.toMap()
     }
     Column(Modifier.fillMaxSize()) {
-        PageHeader("记录", day?.format(DateTimeFormatter.ofPattern("yyyy年M月d日")) ?: "请假与班级事项",
-            back = if (day == null) null else { { onDay(null) } },
-            action = { ActionIcon("todo", "待办日历", onCalendar) })
+        PageHeader("记录", action = {
+            if (day != today) FeedbackTextButton(onClick = { onDay(null) }) { Text("回到今天") }
+            ActionIcon("todo", "待办日历", onCalendar)
+        })
         key(day) {
-            LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (day == null) {
-                    item { MonthCalendar(month, today, badges, onMonth, onDay) }
-                    item {
-                        Text("点日期查看记录，数字是当天的记录条数。", style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    item {
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FeedbackTextButton(onClick = onLeave) { Text("记录请假") }
-                            FeedbackTextButton(onClick = onMark) { Text("新建班级标记") }
-                            FeedbackTextButton(onClick = onForest) { Text("课堂森林") }
-                        }
-                    }
-                } else {
-                    item { SectionHeading("请假", if (day == today) "记录请假" else null, onLeave) }
-                    if (leaves.isEmpty()) item { Text("当天没有请假记录。", style = MaterialTheme.typography.bodySmall) }
-                    items(leaves, key = { "leave-${it.id}" }) { leave ->
-                        Block(onClick = { selectedLeave = leave }) {
-                            Text(names[leave.studentId] ?: "已移出班级的学生", style = MaterialTheme.typography.bodyLarge)
-                            val range = if (leave.start == leave.end) "" else {
-                                val format = DateTimeFormatter.ofPattern(if (leave.start.year == leave.end.year) "M月d日" else "yyyy年M月d日")
-                                "${leave.start.format(format)}至${leave.end.format(format)} · "
-                            }
-                            Text(range + if (leave.cancelled) "已撤销" else periodLabel(leave),
-                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                    item { SectionHeading("班级标记", if (day == today) "新建" else null, onMark) }
-                    val dailyMarkings = markings[day].orEmpty()
-                    if (dailyMarkings.isEmpty()) item { Text("当天没有班级标记。", style = MaterialTheme.typography.bodySmall) }
-                    items(dailyMarkings, key = { "marking-${it.id}" }) { marking ->
-                        Block(onClick = { onMarking(marking.id) }) {
-                            Text(marking.title, style = MaterialTheme.typography.bodyLarge)
-                            Text("${marking.firstLabel} ${marking.students.count { it.first }} 人 · ${marking.secondLabel} ${marking.students.count { !it.first }} 人",
-                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+            LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                item {
+                    Box(Modifier.padding(horizontal = 8.dp)) {
+                        WeekCalendar(dates, today, day, badges) { date -> onDay(date.takeUnless { it == today }) }
                     }
                 }
                 item {
-                    Block(onClick = { onMealAbsences(mealDay) }) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        val dateLabel = if (day.year == today.year) "M月d日" else "yyyy年M月d日"
+                        Text(day.format(DateTimeFormatter.ofPattern(dateLabel)) + if (day == today) " · 今天" else "",
+                            style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                        FeedbackTextButton(onClick = onForest) { Text("课堂森林") }
+                    }
+                }
+                val leaves = leavesByDate.getValue(day)
+                item {
+                    Box(Modifier.padding(horizontal = 16.dp)) {
+                        SectionHeading("请假", if (day == today) "记录请假" else null, onLeave)
+                    }
+                }
+                if (leaves.isEmpty()) item {
+                    Text("当天没有请假记录。", Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall)
+                }
+                items(leaves, key = { "leave-${it.id}" }) { leave ->
+                    Block(Modifier.padding(horizontal = 16.dp), onClick = { selectedLeave = leave }) {
+                        Text(names[leave.studentId] ?: "已移出班级的学生", style = MaterialTheme.typography.bodyLarge)
+                        val range = if (leave.start == leave.end) "" else {
+                            val format = DateTimeFormatter.ofPattern(if (leave.start.year == leave.end.year) "M月d日" else "yyyy年M月d日")
+                            "${leave.start.format(format)}至${leave.end.format(format)} · "
+                        }
+                        Text(range + if (leave.cancelled) "已撤销" else periodLabel(leave),
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                item {
+                    Box(Modifier.padding(horizontal = 16.dp)) {
+                        SectionHeading("班级标记", if (day == today) "新建" else null, onMark)
+                    }
+                }
+                val dailyMarkings = markings[day].orEmpty()
+                if (dailyMarkings.isEmpty()) item {
+                    Text("当天没有班级标记。", Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall)
+                }
+                items(dailyMarkings, key = { "marking-${it.id}" }) { marking ->
+                    Block(Modifier.padding(horizontal = 16.dp), onClick = { onMarking(marking.id) }) {
+                        Text(marking.title, style = MaterialTheme.typography.bodyLarge)
+                        Text("${marking.firstLabel} ${marking.students.count { it.first }} 人 · ${marking.secondLabel} ${marking.students.count { !it.first }} 人",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                item {
+                    Block(Modifier.padding(horizontal = 16.dp), onClick = { onMealAbsences(day) }) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Box(Modifier.size(48.dp).background(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.shapes.medium),
                                 contentAlignment = Alignment.Center) {
@@ -127,11 +135,11 @@ fun RecordsScreen(state: MainUiState, viewModel: MainViewModel, onLeave: () -> U
                             Spacer(Modifier.width(8.dp))
                             Column(Modifier.weight(1f)) {
                                 Text("不在校用餐名单", style = MaterialTheme.typography.titleMedium)
-                                val dateLabel = if (mealDay == today) "今天" else "${mealDay.monthValue}月${mealDay.dayOfMonth}日"
+                                val dateLabel = if (day == today) "今天" else "${day.monthValue}月${day.dayOfMonth}日"
                                 Text("$dateLabel ${absentPeople.size} 人 · 查看名单", style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            val copyLabel = if (mealDay == today) "复制今日不在校用餐名单" else "复制所选日期不在校用餐名单"
+                            val copyLabel = if (day == today) "复制今日不在校用餐名单" else "复制所选日期不在校用餐名单"
                             ActionIcon("copy", copyLabel, enabled = absentPeople.isNotEmpty(), onClick = {
                                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                 clipboard.setPrimaryClip(ClipData.newPlainText("不在校用餐名单", absentPeople.joinToString("、") { it.name }))

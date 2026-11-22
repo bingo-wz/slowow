@@ -91,7 +91,6 @@ class PlannerForestWorkflowInstrumentedTest {
         repo.saveLeave(owner, Leave("reason", "fixture", today, today, LeavePeriod.MORNING, Instant.now()))
         ActivityScenario.launch(MainActivity::class.java).use {
             find(By.text("记录")).click()
-            visible(day(today)).click()
             visible(By.text("虚构请假同学")).click()
             find(By.text("修改")).click()
             val input = visible(By.clazz("android.widget.EditText"))

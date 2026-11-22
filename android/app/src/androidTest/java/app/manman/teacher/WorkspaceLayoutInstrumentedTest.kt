@@ -75,7 +75,7 @@ class WorkspaceLayoutInstrumentedTest {
                     assertFalse(Rect.intersects(all, add))
                     assertTrue(device.takeScreenshot(File(app.cacheDir, "workspace-home-$scale.png")))
                     device.findObject(By.text("记录")).click()
-                    assertTrue(device.wait(Until.hasObject(By.desc("下个月")), 10_000))
+                    assertTrue(device.wait(Until.hasObject(By.desc("下一周")), 10_000))
                     assertTrue(device.takeScreenshot(File(app.cacheDir, "workspace-records-$scale.png")))
                     val copyButton = By.desc("复制今日不在校用餐名单")
                     for (attempt in 1..5) {
