@@ -23,6 +23,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,14 +36,18 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import app.manman.teacher.MainViewModel
 import app.manman.teacher.IncomingShare
+import kotlinx.coroutines.delay
+import java.time.LocalDate
+import java.time.YearMonth
 
 private enum class Page {
     TODAY, RECORDS, CLASS, SETTINGS, IMPORT, STUDENT, LEAVE, MEAL_ABSENCES, MARKING, MARKING_DETAIL,
-    MENU, SCHEDULE, SCHEDULE_REVIEW, WORK, ROUTINES, ROUTINE_EDIT, NOTICE_DETAIL, NOTICE_EDIT, TASK_DETAIL, TASK_EDIT, IMAGE, NOTICE_REVIEW,
+    FOREST, FOREST_GAME, MENU, SCHEDULE, SCHEDULE_REVIEW, WORK, ROUTINES, ROUTINE_EDIT, NOTICE_DETAIL, NOTICE_EDIT, TASK_DETAIL, TASK_EDIT, IMAGE, NOTICE_REVIEW,
 }
 
 @Composable
-fun ManmanApp(viewModel: MainViewModel, shared: IncomingShare? = null, consumeSharedContent: () -> Unit = {}) {
+fun ManmanApp(viewModel: MainViewModel, shared: IncomingShare? = null, openForest: Boolean = false,
+    consumeForestOpen: () -> Unit = {}, consumeSharedContent: () -> Unit = {}) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var pageName by rememberSaveable { mutableStateOf(Page.TODAY.name) }
     var selectedId by rememberSaveable { mutableStateOf("") }
@@ -55,6 +60,12 @@ fun ManmanApp(viewModel: MainViewModel, shared: IncomingShare? = null, consumeSh
     var mealDate by rememberSaveable { mutableStateOf("") }
     var taskReturn by rememberSaveable { mutableStateOf(Page.WORK.name) }
     var markingReturn by rememberSaveable { mutableStateOf(Page.TODAY.name) }
+    var homeDay by rememberSaveable { mutableStateOf<LocalDate?>(null) }
+    var workDay by rememberSaveable { mutableStateOf<LocalDate?>(null) }
+    var workMonth by rememberSaveable { mutableStateOf<YearMonth?>(null) }
+    var workUndated by rememberSaveable { mutableStateOf(false) }
+    var workReturn by rememberSaveable { mutableStateOf(Page.TODAY.name) }
+    var draftDay by rememberSaveable { mutableStateOf<LocalDate?>(null) }
     var showNotices by rememberSaveable { mutableStateOf(false) }
     var imageId by rememberSaveable { mutableStateOf("") }
     var imageReturn by rememberSaveable { mutableStateOf(Page.MENU.name) }
@@ -69,10 +80,24 @@ fun ManmanApp(viewModel: MainViewModel, shared: IncomingShare? = null, consumeSh
         "LUNCH", "LUNCH_HISTORY" -> Page.MEAL_ABSENCES
         else -> Page.entries.firstOrNull { it.name == pageName } ?: Page.TODAY
     }
+    val classroomState = rememberSaveableStateHolder()
     val snackbar = remember { SnackbarHostState() }
     var completionSequence by remember { mutableIntStateOf(0) }
     var completionCount by remember { mutableIntStateOf(1) }
-    LaunchedEffect(viewModel) { viewModel.taskCompletions.collect { count -> completionCount = count; completionSequence++ } }
+    var recentCompletedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    LaunchedEffect(viewModel) {
+        viewModel.taskCompletions.collect { event ->
+            recentCompletedIds = recentCompletedIds + event.taskIds
+            completionCount = event.taskIds.size
+            completionSequence++
+        }
+    }
+    LaunchedEffect(completionSequence) {
+        if (completionSequence > 0) {
+            delay(1_200)
+            recentCompletedIds = emptySet()
+        }
+    }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle, viewModel) {
         val observer = LifecycleEventObserver { _, event ->
@@ -89,8 +114,21 @@ fun ManmanApp(viewModel: MainViewModel, shared: IncomingShare? = null, consumeSh
             viewModel.clearMessage()
         }
     }
+    LaunchedEffect(openForest, state.accountId, page) {
+        if (openForest && state.accountId != null && page in setOf(Page.TODAY, Page.RECORDS, Page.FOREST)) {
+            pageName = Page.FOREST.name
+            consumeForestOpen()
+        }
+    }
     LaunchedEffect(state.accountId) {
-        if (state.accountId == null) pageName = Page.TODAY.name
+        if (state.accountId == null && !state.restoring) {
+            pageName = Page.TODAY.name
+            homeDay = null
+            workDay = null
+            workMonth = null
+            workUndated = false
+            draftDay = null
+        }
     }
     LaunchedEffect(page, state.restoring, state.accountId, state.scheduleSuggestion, state.busy) {
         if (page == Page.SCHEDULE_REVIEW && !state.restoring && state.accountId != null && state.scheduleSuggestion == null && !state.busy) {
@@ -110,8 +148,29 @@ fun ManmanApp(viewModel: MainViewModel, shared: IncomingShare? = null, consumeSh
         }
     }
     fun go(pageToOpen: Page) { pageName = pageToOpen.name }
+    fun openCalendar(from: Page, day: LocalDate? = null) {
+        showNotices = false
+        workReturn = from.name
+        workDay = day
+        workMonth = day?.let(YearMonth::from)
+        workUndated = false
+        go(Page.WORK)
+    }
+    fun addTask(from: Page, day: LocalDate?) {
+        selectedTaskId = ""
+        selectedNoticeId = ""
+        suggestionIndex = -1
+        taskReturn = from.name
+        draftDay = day
+        go(Page.TASK_EDIT)
+    }
     fun back() {
         if (page == Page.NOTICE_REVIEW) viewModel.clearNoticeSuggestion()
+        if (page == Page.WORK && !showNotices && (workDay != null || workUndated)) {
+            workDay = null
+            workUndated = false
+            return
+        }
         go(when (page) {
             Page.IMPORT, Page.STUDENT -> Page.CLASS
             Page.MARKING -> Page.valueOf(markingReturn)
@@ -125,7 +184,10 @@ fun ManmanApp(viewModel: MainViewModel, shared: IncomingShare? = null, consumeSh
                 else Page.valueOf(routineReturn)
             Page.ROUTINE_EDIT -> Page.ROUTINES
             Page.NOTICE_REVIEW -> Page.NOTICE_DETAIL
-            Page.MENU, Page.WORK -> Page.TODAY
+            Page.FOREST -> Page.RECORDS
+            Page.FOREST_GAME -> Page.FOREST
+            Page.MENU -> Page.TODAY
+            Page.WORK -> Page.valueOf(workReturn)
             Page.NOTICE_DETAIL -> Page.WORK
             Page.NOTICE_EDIT -> if (selectedNoticeId.isEmpty()) Page.WORK else Page.NOTICE_DETAIL
             Page.TASK_DETAIL -> Page.valueOf(taskReturn)
@@ -165,14 +227,21 @@ fun ManmanApp(viewModel: MainViewModel, shared: IncomingShare? = null, consumeSh
                 else -> when (page) {
                     Page.TODAY -> TodayScreen(state, viewModel,
                         onSettings = { go(Page.SETTINGS) }, onMenu = { go(Page.MENU) },
-                        onWork = { showNotices = false; go(Page.WORK) }, onNotices = { showNotices = true; go(Page.WORK) },
-                        onAddTask = { selectedTaskId = ""; selectedNoticeId = ""; suggestionIndex = -1; taskReturn = Page.TODAY.name; go(Page.TASK_EDIT) },
-                        onTask = { selectedTaskId = it; selectedNoticeId = ""; suggestionIndex = -1; taskReturn = Page.TODAY.name; go(Page.TASK_DETAIL) })
+                        onWork = { openCalendar(Page.TODAY) }, onNotices = { workReturn = Page.TODAY.name; showNotices = true; go(Page.WORK) },
+                        onAddTask = { addTask(Page.TODAY, homeDay) },
+                        onTask = { selectedTaskId = it; selectedNoticeId = ""; suggestionIndex = -1; taskReturn = Page.TODAY.name; go(Page.TASK_DETAIL) },
+                        recentCompletedIds = recentCompletedIds, selectedDay = homeDay,
+                        onSelectDay = { homeDay = it.takeUnless { day -> day == LocalDate.now(app.manman.teacher.domain.AppTime.zone) } })
                     Page.RECORDS -> RecordsScreen(state, viewModel,
                         onLeave = { selectedId = ""; leaveReturn = Page.RECORDS.name; go(Page.LEAVE) },
                         onEditLeave = { selectedId = it; leaveReturn = Page.RECORDS.name; go(Page.LEAVE) },
                         onMark = { selectedId = ""; markingReturn = Page.RECORDS.name; go(Page.MARKING) }, onMarking = { selectedId = it; go(Page.MARKING_DETAIL) },
-                        onMealAbsences = { mealReturn = Page.RECORDS.name; mealDate = ""; go(Page.MEAL_ABSENCES) })
+                        onMealAbsences = { mealReturn = Page.RECORDS.name; mealDate = ""; go(Page.MEAL_ABSENCES) },
+                        onCalendar = { openCalendar(Page.RECORDS) }, onForest = { go(Page.FOREST) })
+                    Page.FOREST -> classroomState.SaveableStateProvider("forest:${state.accountId}") {
+                        ClassroomForestScreen(state, viewModel, ::back) { go(Page.FOREST_GAME) }
+                    }
+                    Page.FOREST_GAME -> ForestGameScreen(::back)
                     Page.CLASS -> ClassScreen(state, ::back, { go(Page.IMPORT) }, { selectedId = it; go(Page.STUDENT) },
                         { selectedId = ""; markingReturn = Page.CLASS.name; go(Page.MARKING) })
                     Page.SETTINGS -> SettingsScreen(state, viewModel, ::back, onClass = { go(Page.CLASS) }, onSchedule = { go(Page.SCHEDULE) })
@@ -191,8 +260,12 @@ fun ManmanApp(viewModel: MainViewModel, shared: IncomingShare? = null, consumeSh
                         onNotice = { selectedNoticeId = it; go(Page.NOTICE_DETAIL) },
                         onTask = { selectedTaskId = it; selectedNoticeId = ""; suggestionIndex = -1; taskReturn = Page.WORK.name; go(Page.TASK_DETAIL) },
                         onAddNotice = { selectedNoticeId = ""; sharedDraft = ""; sharedImages = emptyList(); go(Page.NOTICE_EDIT) },
-                        onAddTask = { selectedNoticeId = ""; selectedTaskId = ""; suggestionIndex = -1; taskReturn = Page.WORK.name; go(Page.TASK_EDIT) },
-                        onRoutines = { routineReturn = Page.WORK.name; go(Page.ROUTINES) })
+                        onAddTask = { addTask(Page.WORK, workDay) },
+                        onRoutines = { routineReturn = Page.WORK.name; go(Page.ROUTINES) }, recentCompletedIds = recentCompletedIds,
+                        calendarMonth = workMonth, selectedDay = workDay, undated = workUndated,
+                        onMonth = { workMonth = it; workDay = null; workUndated = false },
+                        onSelectDay = { workDay = it; workUndated = false },
+                        onUndated = { workDay = null; workUndated = !workUndated })
                     Page.ROUTINES -> RoutineListScreen(state, ::back,
                         onAdd = { selectedRoutineId = ""; routinePresetKey = it; go(Page.ROUTINE_EDIT) },
                         onEdit = { selectedRoutineId = it; routinePresetKey = ""; go(Page.ROUTINE_EDIT) })
@@ -221,7 +294,7 @@ fun ManmanApp(viewModel: MainViewModel, shared: IncomingShare? = null, consumeSh
                         selectedNoticeId.takeIf(String::isNotEmpty), state.noticeSuggestion?.items?.getOrNull(suggestionIndex), ::back,
                         onSaved = {
                             if (suggestionIndex >= 0) { viewModel.consumeNoticeSuggestion(suggestionIndex); go(Page.NOTICE_REVIEW) } else back()
-                        }, defaultDate = if (selectedTaskId.isEmpty() && selectedNoticeId.isEmpty() && suggestionIndex < 0 && taskReturn == Page.TODAY.name) java.time.LocalDate.now(app.manman.teacher.domain.AppTime.zone) else null)
+                        }, defaultDate = if (selectedTaskId.isEmpty() && selectedNoticeId.isEmpty() && suggestionIndex < 0) draftDay else null)
                     Page.IMAGE -> ImageScreen(state, imageId, ::back)
                     Page.NOTICE_REVIEW -> state.noticeSuggestion?.let { suggestion ->
                         NoticeReviewScreen(suggestion, ::back) { index -> selectedTaskId = ""; suggestionIndex = index; go(Page.TASK_EDIT) }

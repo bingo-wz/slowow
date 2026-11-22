@@ -65,6 +65,12 @@ class ReleaseFixtureTest {
             .put("remindAt", now.plusSeconds(600).toString()).put("done", false).put("createdAt", now.toString())
             .put("dueDate", LocalDate.now(zone).toString())
         app.database.records().saveLocal(account, RecordKind.TASK, "legacy-task", oldTask.toString())
+        val oldRoutine = JSONObject().put("type", "routine_v1").put("id", "legacy-routine")
+            .put("createdAt", now.toString()).put("versions", JSONArray().put(JSONObject()
+                .put("effectiveFrom", LocalDate.now(zone).toString()).put("title", "虚构每周事项")
+                .put("weekdays", JSONArray().put(1).put(3)).put("start", "08:00").put("end", "08:40")
+                .put("enabled", true).put("showMealList", false)))
+        app.database.records().saveLocal(account, RecordKind.SETTINGS, "routine_legacy-routine", oldRoutine.toString())
         repository.saveMarking(account, MarkingRecord("legacy-marking", "虚构事项", "有", "没有", now,
             listOf(MarkingStudent("legacy-student", "虚构学生", false))))
         val oldReview = JSONObject().put("day", LocalDate.now(zone).toString()).put("confirmedAt", now.toString()).put("students", JSONArray())

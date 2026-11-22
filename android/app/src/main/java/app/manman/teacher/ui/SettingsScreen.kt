@@ -233,6 +233,8 @@ private fun kindLabel(kind: String, id: String): String = when (kind) {
     RecordKind.TASK -> "待办"
     RecordKind.SETTINGS -> when {
         id.startsWith(RecordCodec.ROUTINE_PREFIX) -> "固定安排"
+        id.startsWith(app.manman.teacher.data.ForestRecords.PROFILE) -> "课堂档案"
+        id.startsWith(app.manman.teacher.data.ForestRecords.INTERACTION) -> "课堂互动"
         id.startsWith(RecordCodec.TASK_METADATA_PREFIX) -> "待办时间设置"
         else -> "班级设置"
     }
@@ -258,7 +260,7 @@ private fun describeRecord(kind: String, payload: String, deleted: Boolean, name
             }
             RecordKind.LEAVE -> {
                 val period = when (json.getString("period")) { "ALL_DAY" -> "全天"; "MORNING" -> "上午"; "AFTERNOON" -> "下午"; else -> return null }
-                "学生：${names[json.getString("studentId")] ?: "名单中的学生"}\n日期：${json.getString("start")} 至 ${json.getString("end")} · $period\n录入：${json.getString("recordedAt")}\n状态：${if (json.optBoolean("cancelled")) "已撤销" else "请假"}"
+                "学生：${names[json.getString("studentId")] ?: "名单中的学生"}\n日期：${json.getString("start")} 至 ${json.getString("end")} · $period\n原因：${json.optString("reason").ifBlank { "未填写" }}\n录入：${json.getString("recordedAt")}\n状态：${if (json.optBoolean("cancelled")) "已撤销" else "请假"}"
             }
             RecordKind.MEAL_OVERRIDE -> "学生：${names[json.getString("studentId")] ?: "名单中的学生"}\n日期：${json.getString("day")}\n${if (json.getString("value") == "EAT") "在校用餐" else "不在校用餐"}"
             RecordKind.LUNCH_REVIEW -> {
@@ -285,21 +287,30 @@ private fun describeRecord(kind: String, payload: String, deleted: Boolean, name
                 "事项：${json.getString("title")}\n时间：${optional("dueAt")}\n日期：${optional("dueDate")}\n提醒：${optional("remindAt")}\n状态：${if (json.getBoolean("done")) "已完成" else "待处理"}\n来源：$source"
             }
             RecordKind.SETTINGS -> when {
-                json.optString("type") == "routine_v1" -> {
-                    val versions = json.getJSONArray("versions")
-                    (0 until versions.length()).joinToString("\n\n") { index ->
-                        val version = versions.getJSONObject(index)
-                        val days = version.getJSONArray("weekdays")
-                        val names = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
-                        val weekdays = (0 until days.length()).map { days.getInt(it) }.filter { it in 1..7 }.joinToString("、") { names[it - 1] }
-                        val time = if (version.isNull("start") || version.isNull("end")) "未设置" else "${version.getString("start")}—${version.getString("end")}"
-                        "生效日期：${version.getString("effectiveFrom")}\n事项：${version.getString("title")}\n星期：$weekdays\n时间：$time\n${if (version.optBoolean("enabled", true)) "已启用" else "已暂停"}\n${if (version.optBoolean("showMealList")) "关联不在校用餐名单" else "未关联用餐名单"}"
+                json.optString("type") == "forest_profile" -> {
+                    val profile = app.manman.teacher.data.ForestRecords.profile(
+                        LocalRecord("", RecordKind.SETTINGS, "", payload, updatedAt = 0))
+                    "学生：${names[profile.studentId] ?: "班级学生"}\n头像：${profile.animal?.label ?: "默认"}\n分组：${profile.group.label}\n互动方式：${profile.support.label}\n备注：${profile.note.ifBlank { "未填写" }}"
+                }
+                json.optString("type") == "forest_day" ->
+                    "学生：${names[json.getString("studentId")] ?: "班级学生"}\n日期：${json.getString("day")}\n已点亮"
+                json.optString("type") in setOf("routine_v1", "routine_v2") -> {
+                    val rule = RecordCodec.routine(LocalRecord("", RecordKind.SETTINGS, "", payload, updatedAt = 0))
+                    rule.versions.sortedBy { it.effectiveFrom }.joinToString("\n\n") { version ->
+                        val dayNames = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
+                        val times = version.weekdays.sorted().joinToString("\n") { day ->
+                            require(day in 1..7)
+                            val time = version.timeFor(day)
+                            val label = if (time.start == null || time.end == null) "不设时间段" else "${time.start}—${time.end}"
+                            "${dayNames[day - 1]}：$label"
+                        }
+                        "生效日期：${version.effectiveFrom}\n事项：${version.title}\n$times\n${if (version.enabled) "已启用" else "已暂停"}\n${if (version.showMealList) "关联不在校用餐名单" else "未关联用餐名单"}"
                     }
                 }
                 json.optString("type") == "task_metadata_v1" -> {
                     fun optional(key: String): String = if (json.isNull(key)) "未设置" else json.getString(key)
                     val routine = if (json.isNull("routineId")) "无" else routines[json.getString("routineId")] ?: "关联的固定安排"
-                    "事项：${optional("expectedTitle")}\n开始：${optional("expectedDueAt")}\n结束：${optional("endAt")}\n日期：${optional("expectedDueDate")}\n固定安排：$routine\n重复日期：${optional("routineDate")}\n${if (json.optBoolean("expectedDone")) "已完成" else "待处理"}\n${if (json.optBoolean("autoCompleted")) "按时间自动完成" else "未自动完成"}\n${if (json.optBoolean("autoCompletionSuppressed")) "保留手动取消完成" else "允许按时间自动完成"}\n${if (json.optBoolean("routineException")) "此事项已单独修改" else "使用固定安排"}\n${if (json.optBoolean("removedByRule")) "已由固定安排暂停" else "未由固定安排暂停"}\n${if (json.optBoolean("showMealList")) "关联不在校用餐名单" else "未关联用餐名单"}"
+                    "事项：${optional("expectedTitle")}\n开始：${optional("expectedDueAt")}\n结束：${optional("endAt")}\n课节：${optional("lessonPeriod")}\n日期：${optional("expectedDueDate")}\n固定安排：$routine\n重复日期：${optional("routineDate")}\n${if (json.optBoolean("expectedDone")) "已完成" else "待处理"}\n${if (json.optBoolean("autoCompleted")) "按时间自动完成" else "未自动完成"}\n${if (json.optBoolean("autoCompletionSuppressed")) "保留手动取消完成" else "允许按时间自动完成"}\n${if (json.optBoolean("routineException")) "此事项已单独修改" else "使用固定安排"}\n${if (json.optBoolean("removedByRule")) "已由固定安排暂停" else "未由固定安排暂停"}\n${if (json.optBoolean("showMealList")) "关联不在校用餐名单" else "未关联用餐名单"}"
                 }
                 json.has("lessonMinutes") -> {
                     val minutes = json.optInt("lessonMinutes", -1)

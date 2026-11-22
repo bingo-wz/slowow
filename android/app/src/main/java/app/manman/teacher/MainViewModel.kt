@@ -8,6 +8,9 @@ import android.os.SystemClock
 import app.manman.teacher.auth.AuthException
 import app.manman.teacher.auth.VerificationRequest
 import app.manman.teacher.data.ClassRepository
+import app.manman.teacher.data.ForestRecords
+import app.manman.teacher.domain.ForestProfile
+import app.manman.teacher.domain.ForestInteraction
 import app.manman.teacher.data.LocalRecord
 import app.manman.teacher.data.MarkingRecord
 import app.manman.teacher.data.MenuWeek
@@ -40,6 +43,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -48,6 +52,7 @@ import java.time.Instant
 import java.time.LocalDate
 
 data class ScheduleProgressState(val update: ScheduleProgressUpdate, val startedAt: Long)
+data class TaskCompletionEvent(val taskIds: List<String>)
 
 data class MainUiState(
     val restoring: Boolean = true,
@@ -58,6 +63,8 @@ data class MainUiState(
     val message: String? = null,
     val students: List<Student> = emptyList(),
     val leaves: List<Leave> = emptyList(),
+    val forestProfiles: Map<String, ForestProfile> = emptyMap(),
+    val forestInteractions: List<ForestInteraction> = emptyList(),
     val markings: List<MarkingRecord> = emptyList(),
     val menuWeeks: List<MenuWeek> = emptyList(),
     val attachments: List<AttachmentMeta> = emptyList(),
@@ -83,9 +90,12 @@ class MainViewModel(private val application: ManmanApplication) : ViewModel() {
     private val auth = application.auth
     private val repository = ClassRepository(application.database)
     private val mutableState = MutableStateFlow(MainUiState())
-    private val mutableTaskCompletions = MutableSharedFlow<Int>(extraBufferCapacity = 1)
+    private val mutableTaskCompletions = MutableSharedFlow<TaskCompletionEvent>(extraBufferCapacity = 8)
     private val agendaMutex = Mutex()
     private var openedAt: Instant? = null
+    private var accountSnapshotReady = false
+    private var autoCompletionReady = false
+    private var autoCompletionDelay: Job? = null
     private var agendaRefresh: Job? = null
     private var agendaRefreshRequested = false
     private var agendaRegenerationRequested = false
@@ -103,9 +113,16 @@ class MainViewModel(private val application: ManmanApplication) : ViewModel() {
             }
             auth.session.map { it?.accountId }.distinctUntilChanged().collectLatest { accountId ->
                 if (accountId == null) {
+                    accountSnapshotReady = false
+                    autoCompletionReady = false
+                    autoCompletionDelay?.cancel()
                     mutableState.update { MainUiState(restoring = false, error = it.error, message = it.message) }
                     refreshReminders()
                 } else {
+                    accountSnapshotReady = false
+                    autoCompletionReady = false
+                    autoCompletionDelay?.cancel()
+                    if (openedAt != null) openedAt = Instant.now()
                     mutableState.update { it.copy(accountId = accountId, verification = null, error = null) }
                     SyncWorker.enqueue(application, accountId)
                     var reminderRecords: List<Triple<String, String, String>>? = null
@@ -113,6 +130,10 @@ class MainViewModel(private val application: ManmanApplication) : ViewModel() {
                     var routineRecords: List<Triple<String, String, Boolean>>? = null
                     repository.observe(accountId).collect { records ->
                         updateRecords(records)
+                        if (!accountSnapshotReady) {
+                            accountSnapshotReady = true
+                            scheduleAutomaticCompletion()
+                        }
                         val agenda = records.filter { it.kind == RecordKind.TASK ||
                             (it.kind == RecordKind.SETTINGS && it.id.startsWith(RecordCodec.TASK_METADATA_PREFIX)) }
                             .map { Triple(it.kind + ":" + it.id, it.payload, it.deleted) }.sortedBy { it.first }
@@ -126,7 +147,8 @@ class MainViewModel(private val application: ManmanApplication) : ViewModel() {
                             agendaRecords = agenda
                             requestAgendaRefresh(regenerate = false)
                         }
-                        val relevant = records.filter { !it.deleted && it.kind in setOf(RecordKind.TASK, RecordKind.LESSON, RecordKind.TIME_SLOT, RecordKind.SETTINGS) }
+                        val relevant = records.filter { !it.deleted && (it.kind in setOf(RecordKind.TASK, RecordKind.LESSON, RecordKind.TIME_SLOT) ||
+                            (it.kind == RecordKind.SETTINGS && it.id == "reminders")) }
                             .map { Triple(it.kind, it.id, it.payload) }.sortedBy { it.first + it.second }
                         if (relevant != reminderRecords) {
                             reminderRecords = relevant
@@ -172,6 +194,25 @@ class MainViewModel(private val application: ManmanApplication) : ViewModel() {
         repository.saveStudent(requireAccount(), student)
         onDone()
         mutableState.update { it.copy(message = "学生信息已保存。") }
+    }
+
+    fun saveForestProfile(profile: ForestProfile, onDone: () -> Unit) = perform {
+        repository.saveForestProfile(requireAccount(), profile)
+        onDone()
+    }
+
+    fun markForestInteraction(studentId: String, marked: Boolean) = viewModelScope.launch {
+        try {
+            val account = requireAccount()
+            repository.setForestInteraction(account, studentId, marked)
+            scheduleSyncAfterSave(account)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: IllegalArgumentException) {
+            reportMessage(error.message ?: "课堂互动未保存。")
+        } catch (_: Exception) {
+            reportMessage("课堂互动未保存，请重试。")
+        }
     }
 
     fun saveLeave(leave: Leave, onDone: () -> Unit = {}) = perform {
@@ -354,13 +395,35 @@ class MainViewModel(private val application: ManmanApplication) : ViewModel() {
 
     fun onAppForeground() {
         openedAt = Instant.now()
-        requestAgendaRefresh(regenerate = true)
+        autoCompletionReady = false
+        autoCompletionDelay?.cancel()
+        scheduleAutomaticCompletion()
     }
 
-    fun onAppBackground() { openedAt = null }
+    fun onAppBackground() {
+        openedAt = null
+        autoCompletionReady = false
+        autoCompletionDelay?.cancel()
+        agendaRefreshRequested = false
+        agendaRegenerationRequested = false
+        agendaRefresh?.cancel()
+    }
+
+    private fun scheduleAutomaticCompletion() {
+        val open = openedAt ?: return
+        val account = state.value.accountId ?: return
+        if (!accountSnapshotReady || autoCompletionReady || autoCompletionDelay?.isActive == true) return
+        autoCompletionDelay = viewModelScope.launch {
+            delay(1_000)
+            if (openedAt == open && state.value.accountId == account) {
+                autoCompletionReady = true
+                requestAgendaRefresh(regenerate = true)
+            }
+        }
+    }
 
     private fun requestAgendaRefresh(regenerate: Boolean) {
-        if (openedAt == null || state.value.accountId == null) return
+        if (openedAt == null || state.value.accountId == null || !autoCompletionReady) return
         agendaRefreshRequested = true
         agendaRegenerationRequested = agendaRegenerationRequested || regenerate
         if (agendaRefresh?.isActive == true) return
@@ -374,7 +437,7 @@ class MainViewModel(private val application: ManmanApplication) : ViewModel() {
                 try {
                     val result = agendaMutex.withLock { repository.refreshAgenda(account, open, regenerate = regenerate) }
                     if (result.todayCompleted > 0 && openedAt != null && state.value.accountId == account) {
-                        mutableTaskCompletions.tryEmit(result.todayCompleted)
+                        mutableTaskCompletions.tryEmit(TaskCompletionEvent(result.todayTaskIds))
                     }
                     if (result.changed) scheduleSyncAfterSave(account)
                 } catch (error: CancellationException) {
@@ -405,7 +468,7 @@ class MainViewModel(private val application: ManmanApplication) : ViewModel() {
             val account = requireAccount()
             val changed = repository.setTaskDone(account, id, done)
             if (changed) {
-                if (done && state.value.accountId == account) mutableTaskCompletions.tryEmit(1)
+                if (done && state.value.accountId == account) mutableTaskCompletions.tryEmit(TaskCompletionEvent(listOf(id)))
                 scheduleSyncAfterSave(account)
             }
         } catch (error: CancellationException) {
@@ -506,6 +569,11 @@ class MainViewModel(private val application: ManmanApplication) : ViewModel() {
             }
         val students = decode(RecordKind.STUDENT, RecordCodec::student).sortedBy(Student::position)
         val leaves = decode(RecordKind.LEAVE, RecordCodec::leave)
+        fun <T> forest(prefix: String, parser: (LocalRecord) -> T): List<T> = visible.asSequence()
+            .filter { it.kind == RecordKind.SETTINGS && it.id.startsWith(prefix) }
+            .mapNotNull { try { parser(it) } catch (_: Exception) { unreadable++; null } }.toList()
+        val forestProfiles = forest(ForestRecords.PROFILE, ForestRecords::profile).associateBy(ForestProfile::studentId)
+        val forestInteractions = forest(ForestRecords.INTERACTION, ForestRecords::interaction)
         val markings = decode(RecordKind.MARKING, RecordCodec::marking).sortedByDescending(MarkingRecord::createdAt)
         val menuWeeks = decode(RecordKind.MENU_WEEK, RecordCodec::menuWeek)
         val attachments = decode(RecordKind.ATTACHMENT, RecordCodec::attachment)
@@ -528,7 +596,7 @@ class MainViewModel(private val application: ManmanApplication) : ViewModel() {
             try { RecordCodec.scheduleProfile(it) } catch (_: Exception) { unreadable++; null }
         } ?: ScheduleProfile()
         mutableState.update { it.copy(
-            students = students, leaves = leaves, markings = markings,
+            students = students, leaves = leaves, markings = markings, forestProfiles = forestProfiles, forestInteractions = forestInteractions,
             menuWeeks = menuWeeks, attachments = attachments,
             timeSlots = timeSlots, lessons = lessons, scheduleProfile = scheduleProfile, notices = notices, tasks = tasks, routines = routines,
             lessonReminderMinutes = lessonReminder,

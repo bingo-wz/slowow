@@ -79,16 +79,14 @@ class AgendaWorkflowInstrumentedTest {
                         delay(100)
                     }
                 }
-                val label = today.format(DateTimeFormatter.ofPattern("M月d日")) + " · 今天"
-                assertFalse(device.hasObject(By.text(label)))
                 byDescription(device, "全部待办").click()
                 assertTrue(device.wait(Until.hasObject(By.text("全部待办")), 10_000))
-                byText(device, label).click()
-                assertTrue(device.wait(Until.gone(By.text("布置作业")), 5_000))
-                byText(device, label).click()
+                assertFalse(device.hasObject(By.text("布置作业")))
+                val label = today.format(DateTimeFormatter.ofPattern("yyyy年M月d日")) + " "
+                device.wait(Until.findObject(By.descStartsWith(label)), 5_000).click()
                 assertTrue(device.wait(Until.hasObject(By.text("布置作业")), 5_000))
-                scrollTo(device, "明天的虚构待办")
-                device.takeScreenshot(File(app.cacheDir, "agenda-workflow.png"))
+                byText(device, "返回月历").click()
+                assertTrue(device.wait(Until.gone(By.text("布置作业")), 5_000))
                 device.pressBack()
                 tapDescription(device, "新建待办")
                 assertTrue(device.wait(Until.hasObject(By.text("新建待办")), 10_000))

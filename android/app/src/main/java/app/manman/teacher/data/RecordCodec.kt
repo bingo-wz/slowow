@@ -84,7 +84,10 @@ data class WorkTask(
     val autoCompleted: Boolean = false,
     val showMealList: Boolean = false,
     val timingNeedsReview: Boolean = false,
+    val lessonPeriod: Int? = null,
 ) : java.io.Serializable
+
+data class RoutineTime(val start: LocalTime? = null, val end: LocalTime? = null) : java.io.Serializable
 
 data class RoutineVersion(
     val effectiveFrom: LocalDate,
@@ -94,7 +97,10 @@ data class RoutineVersion(
     val end: LocalTime? = null,
     val enabled: Boolean = true,
     val showMealList: Boolean = false,
-) : java.io.Serializable
+    val weekdayTimes: Map<Int, RoutineTime> = emptyMap(),
+) : java.io.Serializable {
+    fun timeFor(weekday: Int): RoutineTime = weekdayTimes[weekday] ?: RoutineTime(start, end)
+}
 
 data class RoutineRule(val id: String, val createdAt: Instant, val versions: List<RoutineVersion>) : java.io.Serializable {
     val current: RoutineVersion get() = versions.maxBy(RoutineVersion::effectiveFrom)
@@ -114,6 +120,7 @@ data class TaskMetadata(
     val autoCompletionSuppressed: Boolean = false,
     val autoCompleted: Boolean = false,
     val showMealList: Boolean = false,
+    val lessonPeriod: Int? = null,
 )
 
 object RecordCodec {
@@ -124,27 +131,52 @@ object RecordCodec {
     fun taskMetadataId(id: String): String = TASK_METADATA_PREFIX +
         UUID.nameUUIDFromBytes("taskmeta:$id".toByteArray(Charsets.UTF_8)).toString()
 
-    fun routine(value: RoutineRule): String = JSONObject().put("type", "routine_v1").put("id", value.id)
+    fun routine(value: RoutineRule): String = JSONObject().put("type", if (value.versions.any {
+        it.weekdayTimes.isNotEmpty()
+    }) "routine_v2" else "routine_v1").put("id", value.id)
         .put("createdAt", value.createdAt.toString()).put("versions", JSONArray().apply {
             value.versions.sortedBy(RoutineVersion::effectiveFrom).forEach { version ->
-                put(JSONObject().put("effectiveFrom", version.effectiveFrom.toString()).put("title", version.title)
+                val entry = JSONObject().put("effectiveFrom", version.effectiveFrom.toString()).put("title", version.title)
                     .put("weekdays", JSONArray(version.weekdays.sorted())).put("start", version.start?.toString() ?: JSONObject.NULL)
                     .put("end", version.end?.toString() ?: JSONObject.NULL).put("enabled", version.enabled)
-                    .put("showMealList", version.showMealList))
+                    .put("showMealList", version.showMealList)
+                if (version.weekdayTimes.isNotEmpty()) entry.put("weekdayTimes", JSONObject().apply {
+                    version.weekdayTimes.toSortedMap().forEach { (day, time) ->
+                        put(day.toString(), JSONObject().put("start", time.start?.toString() ?: JSONObject.NULL)
+                            .put("end", time.end?.toString() ?: JSONObject.NULL))
+                    }
+                })
+                put(entry)
             }
         }).toString()
 
     fun routine(record: LocalRecord): RoutineRule = JSONObject(record.payload).let { json ->
-        require(json.getString("type") == "routine_v1")
+        val type = json.getString("type")
+        require(type == "routine_v1" || type == "routine_v2")
         val versions = json.getJSONArray("versions")
         RoutineRule(json.getString("id"), Instant.parse(json.getString("createdAt")), (0 until versions.length()).map { index ->
             val version = versions.getJSONObject(index)
             val weekdays = version.getJSONArray("weekdays")
+            val selectedDays = (0 until weekdays.length()).map(weekdays::getInt).toSet()
+            require(selectedDays.isNotEmpty() && selectedDays.all { it in 1..7 } && selectedDays.size == weekdays.length())
+            val entries = version.optJSONObject("weekdayTimes")
+            require(type == "routine_v2" || entries == null)
+            val weekdayTimes = entries?.keys()?.asSequence()?.associate { key ->
+                val day = key.toInt()
+                require(day in 1..7 && key == day.toString())
+                val time = entries.getJSONObject(key)
+                val start = if (time.isNull("start")) null else LocalTime.parse(time.getString("start"))
+                val end = if (time.isNull("end")) null else LocalTime.parse(time.getString("end"))
+                require((start == null && end == null) || (start != null && end != null && end > start))
+                day to RoutineTime(start, end)
+            }.orEmpty()
+            require(weekdayTimes.keys.all { it in selectedDays })
+            val start = if (version.isNull("start")) null else LocalTime.parse(version.getString("start"))
+            val end = if (version.isNull("end")) null else LocalTime.parse(version.getString("end"))
+            require((start == null && end == null) || (start != null && end != null && end > start))
             RoutineVersion(LocalDate.parse(version.getString("effectiveFrom")), version.getString("title"),
-                (0 until weekdays.length()).map(weekdays::getInt).toSet(),
-                if (version.isNull("start")) null else LocalTime.parse(version.getString("start")),
-                if (version.isNull("end")) null else LocalTime.parse(version.getString("end")),
-                version.optBoolean("enabled", true), version.optBoolean("showMealList", false))
+                selectedDays, start, end,
+                version.optBoolean("enabled", true), version.optBoolean("showMealList", false), weekdayTimes)
         }.also { require(it.isNotEmpty()) })
     }
 
@@ -155,7 +187,8 @@ object RecordCodec {
         .put("endAt", value.endAt?.toString() ?: JSONObject.NULL).put("routineId", value.routineId ?: JSONObject.NULL)
         .put("routineDate", value.routineDate?.toString() ?: JSONObject.NULL).put("routineException", value.routineException)
         .put("removedByRule", value.removedByRule).put("autoCompletionSuppressed", value.autoCompletionSuppressed)
-        .put("autoCompleted", value.autoCompleted).put("showMealList", value.showMealList).toString()
+        .put("autoCompleted", value.autoCompleted).put("showMealList", value.showMealList)
+        .apply { value.lessonPeriod?.let { put("lessonPeriod", it) } }.toString()
 
     fun taskMetadata(record: LocalRecord): TaskMetadata = JSONObject(record.payload).let { json ->
         require(json.getString("type") == "task_metadata_v1")
@@ -165,12 +198,12 @@ object RecordCodec {
             optional("endAt")?.let(Instant::parse), optional("routineId"), optional("routineDate")?.let(LocalDate::parse),
             json.optBoolean("routineException", false), json.optBoolean("removedByRule", false),
             json.optBoolean("autoCompletionSuppressed", false), json.optBoolean("autoCompleted", false),
-            json.optBoolean("showMealList", false))
+            json.optBoolean("showMealList", false), json.optInt("lessonPeriod").takeIf { it in 1..12 })
     }
 
     fun metadataFor(task: WorkTask): TaskMetadata = TaskMetadata(task.id, task.title, task.dueAt, task.dueDate, task.done, task.endAt,
         task.routineId, task.routineDate, task.routineException, task.removedByRule, task.autoCompletionSuppressed,
-        task.autoCompleted, task.showMealList)
+        task.autoCompleted, task.showMealList, task.lessonPeriod)
 
     fun withMetadata(task: WorkTask, metadata: TaskMetadata?): WorkTask {
         if (metadata == null || metadata.taskId != task.id) return task
@@ -181,7 +214,7 @@ object RecordCodec {
             removedByRule = metadata.removedByRule,
             autoCompletionSuppressed = metadata.autoCompletionSuppressed || (metadata.expectedDone && !task.done),
             autoCompleted = task.done && metadata.expectedDone && metadata.autoCompleted,
-            showMealList = metadata.showMealList, timingNeedsReview = !timeMatches && metadata.endAt != null)
+            showMealList = metadata.showMealList, lessonPeriod = metadata.lessonPeriod, timingNeedsReview = !timeMatches && metadata.endAt != null)
     }
     fun menuWeek(value: MenuWeek): String = JSONObject().put("start", value.start.toString())
         .put("attachmentId", value.attachmentId).toString()
@@ -292,12 +325,12 @@ object RecordCodec {
         .put("end", value.end.toString())
         .put("period", value.period.name)
         .put("recordedAt", value.recordedAt.toString())
-        .put("cancelled", value.cancelled).toString()
+        .put("cancelled", value.cancelled).apply { if (value.reason.isNotBlank()) put("reason", value.reason) }.toString()
 
     fun leave(record: LocalRecord): Leave = JSONObject(record.payload).let {
         Leave(record.id, it.getString("studentId"), LocalDate.parse(it.getString("start")),
             LocalDate.parse(it.getString("end")), LeavePeriod.valueOf(it.getString("period")),
-            Instant.parse(it.getString("recordedAt")), it.optBoolean("cancelled", false))
+            Instant.parse(it.getString("recordedAt")), it.optBoolean("cancelled", false), if (it.isNull("reason")) "" else it.optString("reason"))
     }
 
     fun marking(value: MarkingRecord): String = JSONObject()

@@ -32,6 +32,7 @@ data class Leave(
     val period: LeavePeriod,
     val recordedAt: Instant,
     val cancelled: Boolean = false,
+    val reason: String = "",
 )
 
 data class MealAbsence(val studentId: String, val name: String, val regular: Boolean, val onLeave: Boolean)

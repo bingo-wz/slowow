@@ -31,8 +31,9 @@ object RoutinePlanner {
         while (!day.isAfter(through)) {
             val version = versions.lastOrNull { !it.effectiveFrom.isAfter(day) }
             if (version != null && version.enabled && day.dayOfWeek.value in version.weekdays) {
-                val start = version.start?.let { day.atTime(it).atZone(AppTime.zone).toInstant() }
-                val end = version.end?.let { day.atTime(it).atZone(AppTime.zone).toInstant() }
+                val time = version.timeFor(day.dayOfWeek.value)
+                val start = time.start?.let { day.atTime(it).atZone(AppTime.zone).toInstant() }
+                val end = time.end?.let { day.atTime(it).atZone(AppTime.zone).toInstant() }
                 result.add(RoutineOccurrence(occurrenceId(rule.id, day), rule.id, day, version, start, end, rule.createdAt))
             }
             day = day.plusDays(1)

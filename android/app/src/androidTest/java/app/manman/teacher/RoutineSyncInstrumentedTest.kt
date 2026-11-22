@@ -11,8 +11,11 @@ import app.manman.teacher.data.RecordCodec
 import app.manman.teacher.data.RecordKind
 import app.manman.teacher.data.RemoteRecord
 import app.manman.teacher.data.RoutineRule
+import app.manman.teacher.data.RoutineTime
 import app.manman.teacher.data.RoutineVersion
+import app.manman.teacher.data.WorkTask
 import app.manman.teacher.domain.AppTime
+import app.manman.teacher.domain.TaskOrdering
 import app.manman.teacher.sync.SyncEngine
 import app.manman.teacher.sync.SyncResponse
 import app.manman.teacher.sync.SyncResult
@@ -28,6 +31,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.time.Instant
+import java.time.LocalTime
 import java.util.UUID
 
 @RunWith(AndroidJUnit4::class)
@@ -84,7 +88,9 @@ class RoutineSyncInstrumentedTest {
             val owner = "sync-routine-${UUID.randomUUID()}"
             val now = Instant.now()
             val day = now.atZone(AppTime.zone).toLocalDate()
-            val rule = RoutineRule("same-rule", now, listOf(RoutineVersion(day, "固定安排", (1..7).toSet())))
+            val times = mapOf(day.plusDays(1).dayOfWeek.value to RoutineTime(LocalTime.of(8, 0), LocalTime.of(8, 40)),
+                day.plusDays(2).dayOfWeek.value to RoutineTime(LocalTime.of(9, 0), LocalTime.of(9, 45)))
+            val rule = RoutineRule("same-rule", now, listOf(RoutineVersion(day, "固定安排", (1..7).toSet(), weekdayTimes = times)))
             val server = Server()
             val remote = server.seed(RecordKind.SETTINGS, RecordCodec.routineRecordId(rule.id), RecordCodec.routine(rule))
             first.records().applyRemote(owner, listOf(remote), remote.sequence)
@@ -98,8 +104,37 @@ class RoutineSyncInstrumentedTest {
             val secondTasks = secondRecords.filter { it.kind == RecordKind.TASK && !it.deleted }
             assertEquals(8, firstTasks.size)
             assertEquals(firstTasks.map { it.id }.toSet(), secondTasks.map { it.id }.toSet())
+            val tomorrow = secondTasks.map(RecordCodec::task).single { it.dueDate == day.plusDays(1) }
+            assertEquals(day.plusDays(1).atTime(8, 0).atZone(AppTime.zone).toInstant(), tomorrow.dueAt)
             assertTrue(secondRecords.none { it.conflictVersion != null })
             assertFalse(secondRecords.any { it.dirty })
+        } finally { first.close(); second.close() }
+    }
+
+    @Test fun manualOrderOfTimedTasksSynchronizesToAnotherDevice() = runBlocking {
+        val app = ApplicationProvider.getApplicationContext<ManmanApplication>()
+        val first = Room.inMemoryDatabaseBuilder(app, ManmanDatabase::class.java).build()
+        val second = Room.inMemoryDatabaseBuilder(app, ManmanDatabase::class.java).build()
+        try {
+            val owner = "sync-order-${UUID.randomUUID()}"
+            val now = Instant.now()
+            val day = now.atZone(AppTime.zone).toLocalDate().plusDays(1)
+            val early = day.atTime(8, 0).atZone(AppTime.zone).toInstant()
+            val late = day.atTime(9, 0).atZone(AppTime.zone).toInstant()
+            val repository = ClassRepository(first)
+            repository.saveTask(owner, WorkTask("early", "较早安排", null, early, null, false, now, day, endAt = early.plusSeconds(1800)))
+            repository.saveTask(owner, WorkTask("late", "较晚安排", null, late, null, false, now, day, endAt = late.plusSeconds(1800)))
+            val server = Server()
+            val firstSync = SyncEngine(server, first.records(), Session(owner))
+            val secondSync = SyncEngine(server, second.records(), Session(owner))
+            assertEquals(SyncResult.SUCCESS, firstSync.sync(owner))
+            assertEquals(SyncResult.SUCCESS, secondSync.sync(owner))
+            repository.reorderTasks(owner, day, listOf("late", "early"))
+            assertEquals(SyncResult.SUCCESS, firstSync.sync(owner))
+            assertEquals(SyncResult.SUCCESS, secondSync.sync(owner))
+            val tasks = second.records().snapshot(owner).filter { it.kind == RecordKind.TASK && !it.deleted }.map(RecordCodec::task)
+            assertEquals(listOf("late", "early"), TaskOrdering.sorted(tasks).map { it.id })
+            assertTrue(second.records().snapshot(owner).none { it.conflictVersion != null })
         } finally { first.close(); second.close() }
     }
 }

@@ -5,6 +5,9 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -45,7 +48,8 @@ import java.time.format.DateTimeFormatter
 
 @Composable
 fun RecordsScreen(state: MainUiState, viewModel: MainViewModel, onLeave: () -> Unit, onEditLeave: (String) -> Unit,
-    onMark: () -> Unit, onMarking: (String) -> Unit, onMealAbsences: () -> Unit) {
+    onMark: () -> Unit, onMarking: (String) -> Unit, onMealAbsences: () -> Unit,
+    onCalendar: () -> Unit = {}, onForest: () -> Unit = {}) {
     var selectedLeave by remember { mutableStateOf<Leave?>(null) }
     var deletingLeave by remember { mutableStateOf<Leave?>(null) }
     var toggledDays by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
@@ -60,7 +64,7 @@ fun RecordsScreen(state: MainUiState, viewModel: MainViewModel, onLeave: () -> U
     val groups = state.markings.groupBy { it.createdAt.atZone(AppTime.zone).toLocalDate() }.toSortedMap(compareByDescending { it })
     val newest = groups.keys.firstOrNull()
     Column(Modifier.fillMaxSize()) {
-        PageHeader("记录", "请假与班级事项")
+        PageHeader("记录", "请假与班级事项", action = { ActionIcon("todo", "待办日历", onCalendar) })
         LazyColumn(Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item {
                 Block(onClick = onMealAbsences) {
@@ -83,6 +87,10 @@ fun RecordsScreen(state: MainUiState, viewModel: MainViewModel, onLeave: () -> U
                     }
                 }
             }
+            item { Block(onClick = onForest) {
+                Text("课堂森林", style = MaterialTheme.typography.titleMedium)
+                Text("分组、课堂点亮和关照提醒", style = MaterialTheme.typography.bodySmall)
+            } }
             item { SectionHeading("请假", "记录请假", onLeave) }
             if (state.leaves.isEmpty()) item { Block { Text("还没有请假记录。", color = MaterialTheme.colorScheme.onSurfaceVariant) } }
             leaveGroups.forEach { (day, leaves) ->
@@ -141,7 +149,12 @@ fun RecordsScreen(state: MainUiState, viewModel: MainViewModel, onLeave: () -> U
     selectedLeave?.let { leave ->
         val recorded = leave.recordedAt.atZone(AppTime.zone).format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
         AlertDialog(onDismissRequest = feedbackClick { selectedLeave = null }, title = { Text(names[leave.studentId] ?: "请假记录") },
-            text = { Text("${leave.start} 至 ${leave.end} · ${periodLabel(leave)}\n录入时间：$recorded\n${if (leave.cancelled) "已撤销" else "撤销后，不在校用餐名单会自动更新。"}") },
+            text = { Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
+                Text("${leave.start} 至 ${leave.end} · ${periodLabel(leave)}")
+                if (leave.reason.isNotBlank()) Text("请假原因：${leave.reason}")
+                Text("录入时间：$recorded")
+                Text(if (leave.cancelled) "已撤销" else "撤销后，不在校用餐名单会自动更新。")
+            } },
             confirmButton = {
                 if (!leave.cancelled) Row {
                     FeedbackTextButton(onClick = { selectedLeave = null; onEditLeave(leave.id) }) { Text("修改") }

@@ -1,5 +1,7 @@
 package app.manman.teacher
 
+import android.graphics.Rect
+import android.view.accessibility.AccessibilityNodeInfo
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -59,7 +61,7 @@ class RoutineWorkflowInstrumentedTest {
                 byDescription(device, "固定安排").click()
                 byText(device, "午餐核销").click()
                 byText(device, weekday).click()
-                scrollTo(device, "设置时间段").click()
+                scrollTo(device, "统一设置时间段").click()
                 repeat(2) {
                     val confirm = device.wait(Until.findObject(By.res("android", "button1")), 10_000)
                         ?: throw AssertionError("未找到时间选择器的确认按钮")
@@ -148,6 +150,95 @@ class RoutineWorkflowInstrumentedTest {
         }
     }
 
+    @Test fun selectedWeekdaysCanHaveDifferentTimingAtLargeFontSize() = runBlocking {
+        val (app, account) = fixture()
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        val oldScale = device.executeShellCommand("settings get system font_scale").trim()
+        val oldAppSize = app.textSizes.state.value
+        app.textSizes.select(AppTextSize.SYSTEM)
+        device.executeShellCommand("settings put system font_scale 2.0")
+        val today = LocalDate.now(AppTime.zone)
+        val tomorrow = today.plusDays(1)
+        val dayAfter = today.plusDays(2)
+        val names = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
+        val first = names[today.dayOfWeek.value - 1]
+        val second = names[tomorrow.dayOfWeek.value - 1]
+        val third = names[dayAfter.dayOfWeek.value - 1]
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                byDescription(device, "全部待办").click()
+                byDescription(device, "固定安排").click()
+                byDescription(device, "添加固定安排").click()
+                val input = device.wait(Until.findObject(By.clazz("android.widget.EditText")), 10_000)
+                    ?: throw AssertionError("未找到固定安排输入框")
+                input.text = "虚构每周事项"
+                device.pressBack()
+                device.wait(Until.findObject(By.text("继续编辑")), 1500)?.click()
+                byText(device, first).click()
+                byText(device, second).click()
+                byText(device, third).click()
+                scrollToDescription(device, "设置${first}时间段").click()
+                assertNotNull(device.wait(Until.findObject(By.res("android", "button1")), 10_000))
+                device.dumpWindowHierarchy(File(app.cacheDir, "weekday-picker.xml"))
+                repeat(2) {
+                    val confirm = device.wait(Until.findObject(By.res("android", "button1")), 10_000)
+                        ?: throw AssertionError("未找到时间选择器的确认按钮")
+                    confirm.click()
+                    android.os.SystemClock.sleep(500)
+                }
+                assertNotNull(scrollTo(device, "08:00—08:40"))
+                scrollToDescription(device, "设置${second}时间段").click()
+                val hour9 = device.wait(Until.findObject(By.desc("9")), 10_000)
+                    ?: throw AssertionError("未找到开始时间的小时")
+                hour9.click()
+                android.os.SystemClock.sleep(500)
+                byDescription(device, "5").click()
+                device.wait(Until.findObject(By.res("android", "button1")), 10_000).click()
+                android.os.SystemClock.sleep(500)
+                val hour10 = device.wait(Until.findObject(By.desc("10")), 10_000)
+                    ?: throw AssertionError("未找到结束时间的小时")
+                hour10.click()
+                android.os.SystemClock.sleep(500)
+                byDescription(device, "50").click()
+                device.wait(Until.findObject(By.res("android", "button1")), 10_000).click()
+                assertNotNull(scrollTo(device, "09:05—10:50"))
+                scenario.recreate()
+                assertNotNull(scrollTo(device, "08:00—08:40"))
+                assertNotNull(scrollTo(device, "09:05—10:50"))
+                assertTrue(device.takeScreenshot(File(app.cacheDir, "weekday-ranges-large.png")))
+                scrollTo(device, "保存固定安排").click()
+                var ruleRecord: app.manman.teacher.data.LocalRecord? = null
+                withTimeout(10_000) {
+                    while (ruleRecord == null) {
+                        ruleRecord = app.database.records().snapshot(account).firstOrNull {
+                            it.kind == RecordKind.SETTINGS && it.id.startsWith(RecordCodec.ROUTINE_PREFIX) && !it.deleted
+                        }
+                        if (ruleRecord == null) delay(100)
+                    }
+                }
+                val rule = RecordCodec.routine(requireNotNull(ruleRecord))
+                assertEquals(setOf(today.dayOfWeek.value, tomorrow.dayOfWeek.value, dayAfter.dayOfWeek.value), rule.current.weekdays)
+                assertEquals(java.time.LocalTime.of(8, 0), rule.current.timeFor(today.dayOfWeek.value).start)
+                assertEquals(java.time.LocalTime.of(8, 40), rule.current.timeFor(today.dayOfWeek.value).end)
+                assertEquals(java.time.LocalTime.of(9, 5), rule.current.timeFor(tomorrow.dayOfWeek.value).start)
+                assertEquals(java.time.LocalTime.of(10, 50), rule.current.timeFor(tomorrow.dayOfWeek.value).end)
+                assertEquals(null, rule.current.timeFor(dayAfter.dayOfWeek.value).start)
+                assertEquals(null, rule.current.timeFor(dayAfter.dayOfWeek.value).end)
+                assertEquals("routine_v2", org.json.JSONObject(requireNotNull(ruleRecord).payload).getString("type"))
+                assertTrue(device.wait(Until.hasObject(By.text("固定安排")), 10_000))
+                scrollTo(device, "虚构每周事项").click()
+                assertTrue(device.wait(Until.hasObject(By.text("每周哪几天")), 10_000))
+                scenario.recreate()
+                assertNotNull(scrollTo(device, "08:00—08:40"))
+                assertNotNull(scrollTo(device, "09:05—10:50"))
+            }
+        } finally {
+            app.textSizes.select(oldAppSize)
+            if (oldScale == "null" || oldScale.isBlank()) device.executeShellCommand("settings delete system font_scale")
+            else device.executeShellCommand("settings put system font_scale $oldScale")
+        }
+    }
+
     @Test fun openingAutomaticallyCompletesOnlyExpiredRangesAndManualUndoPersists() = runBlocking {
         val (app, account) = fixture()
         val repository = ClassRepository(app.database)
@@ -198,14 +289,34 @@ class RoutineWorkflowInstrumentedTest {
         val day = now.atZone(AppTime.zone).toLocalDate()
         val start = day.atStartOfDay(AppTime.zone).toInstant()
         assumeTrue(now.isAfter(start.plusSeconds(30)))
-        repository.saveTask(account, WorkTask("celebration-auto", "当日虚构安排", null, start, null, false,
-            now.minusSeconds(60), day, endAt = start.plusSeconds(30)))
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         val previous = device.executeShellCommand("settings get global animator_duration_scale").trim()
         device.executeShellCommand("settings put global animator_duration_scale 3")
         try {
-            ActivityScenario.launch(MainActivity::class.java).use {
-                assertTrue(device.wait(Until.hasObject(By.text("完成啦")), 10_000))
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                assertTrue(device.wait(Until.hasObject(By.text("今日待办")), 10_000))
+                repository.saveTask(account, WorkTask("celebration-auto", "当日虚构安排", null, start, null, false,
+                    now.minusSeconds(60), day, endAt = start.plusSeconds(30)))
+                assertNotNull(waitForDescription("完成当日虚构安排", 10_000))
+                scenario.moveToState(androidx.lifecycle.Lifecycle.State.STARTED)
+                delay(1_200)
+                assertFalse(RecordCodec.task(app.database.records().find(account, RecordKind.TASK, "celebration-auto")!!).done)
+                scenario.moveToState(androidx.lifecycle.Lifecycle.State.RESUMED)
+                if (waitForDescription("完成当日虚构安排", 10_000) == null) {
+                    device.dumpWindowHierarchy(File(app.cacheDir, "automatic-pending-failed.xml"))
+                    device.takeScreenshot(File(app.cacheDir, "automatic-pending-failed.png"))
+                    val task = app.database.records().find(account, RecordKind.TASK, "celebration-auto")?.let(RecordCodec::task)
+                    throw AssertionError("未看到待处理事项：状态=${task?.done}")
+                }
+                val pendingSeenAt = android.os.SystemClock.elapsedRealtime()
+                assertNotNull(waitForDescription("取消完成当日虚构安排", 10_000))
+                assertTrue(android.os.SystemClock.elapsedRealtime() - pendingSeenAt >= 200)
+                val fireworks = waitForDescription("已完成，礼花庆祝", 5_000)
+                assertNotNull(fireworks)
+                val bounds = Rect()
+                fireworks!!.getBoundsInScreen(bounds)
+                assertTrue(bounds.width() >= device.displayWidth * .8f)
+                assertTrue(bounds.height() >= device.displayHeight * .3f)
                 assertTrue(device.takeScreenshot(File(app.cacheDir, "automatic-celebration.png")))
                 assertTrue(RecordCodec.task(app.database.records().find(account, RecordKind.TASK, "celebration-auto")!!).done)
             }
@@ -215,22 +326,76 @@ class RoutineWorkflowInstrumentedTest {
         }
     }
 
-    @Test fun choosingATimeRangeStoresItAndCompletesAfterReopening() = runBlocking {
+    @Test fun manuallyCompletingAnItemShowsFireworks() = runBlocking {
+        val (app, account) = fixture()
+        val now = Instant.now()
+        val today = now.atZone(AppTime.zone).toLocalDate()
+        ClassRepository(app.database).saveTask(account, WorkTask("manual-fireworks", "虚构待办", null, null, null, false, now, today))
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        val previous = device.executeShellCommand("settings get global animator_duration_scale").trim()
+        device.executeShellCommand("settings put global animator_duration_scale 3")
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use {
+                byDescription(device, "完成虚构待办").click()
+                assertTrue(device.wait(Until.hasObject(By.desc("已完成，礼花庆祝")), 10_000))
+                assertTrue(device.takeScreenshot(File(app.cacheDir, "manual-fireworks.png")))
+                assertTrue(RecordCodec.task(app.database.records().find(account, RecordKind.TASK, "manual-fireworks")!!).done)
+            }
+        } finally {
+            if (previous == "null" || previous.isBlank()) device.executeShellCommand("settings delete global animator_duration_scale")
+            else device.executeShellCommand("settings put global animator_duration_scale $previous")
+        }
+    }
+
+    @Test fun timedItemsCanBeDraggedAndKeepTheManualOrder() = runBlocking {
+        val (app, account) = fixture()
+        val now = Instant.now()
+        val today = now.atZone(AppTime.zone).toLocalDate()
+        val earlyStart = today.atTime(23, 40).atZone(AppTime.zone).toInstant()
+        val lateStart = today.atTime(23, 50).atZone(AppTime.zone).toInstant()
+        assumeTrue(now.isBefore(earlyStart))
+        val repository = ClassRepository(app.database)
+        repository.saveTask(account, WorkTask("early-time", "较早安排", null, earlyStart, null, false, now, today,
+            endAt = earlyStart.plusSeconds(60)))
+        repository.saveTask(account, WorkTask("late-time", "较晚安排", null, lateStart, null, false, now, today,
+            endAt = lateStart.plusSeconds(60)))
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        val previousScale = device.executeShellCommand("settings get system font_scale").trim()
+        device.executeShellCommand("settings put system font_scale 1.0")
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                val from = byDescription(device, "拖动调整较晚安排的顺序").visibleCenter
+                val to = byDescription(device, "拖动调整较早安排的顺序").visibleCenter
+                device.drag(from.x, from.y, to.x, to.y, 30)
+                withTimeout(10_000) {
+                    while (RecordCodec.task(app.database.records().find(account, RecordKind.TASK, "late-time")!!).sortOrder != 0L) delay(100)
+                }
+                scenario.recreate()
+                val later = byText(device, "较晚安排").visibleBounds.top
+                val earlier = byText(device, "较早安排").visibleBounds.top
+                assertTrue(later < earlier)
+                assertEquals(lateStart, RecordCodec.task(app.database.records().find(account, RecordKind.TASK, "late-time")!!).dueAt)
+            }
+        } finally {
+            if (previousScale == "null" || previousScale.isBlank()) device.executeShellCommand("settings delete system font_scale")
+            else device.executeShellCommand("settings put system font_scale $previousScale")
+        }
+    }
+
+    @Test fun editingAnExistingTimeRangePreservesAutomaticCompletion() = runBlocking {
         val (app, account) = fixture()
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         val oldScale = device.executeShellCommand("settings get system font_scale").trim()
         val today = LocalDate.now(AppTime.zone)
         assumeTrue(Instant.now().isAfter(today.atTime(9, 0).atZone(AppTime.zone).toInstant()))
+        val id = "existing-range-task"
+        ClassRepository(app.database).saveTask(account, WorkTask(id, "虚构时间段待办", null, null, null, false, Instant.now(), today))
         val requestedScale = InstrumentationRegistry.getArguments().getString("timeFixtureScale") ?: "1.0"
         require(requestedScale in setOf("1.0", "2.0"))
         device.executeShellCommand("settings put system font_scale $requestedScale")
         try { ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            byDescription(device, "新建待办").click()
-            val input = device.wait(Until.findObject(By.clazz("android.widget.EditText")), 10_000)
-                ?: throw AssertionError("未找到待办输入框")
-            input.text = "虚构时间段待办"
-            device.pressBack()
-            device.wait(Until.findObject(By.text("继续编辑")), 1500)?.click()
+            byText(device, "虚构时间段待办").click()
+            byDescription(device, "编辑待办").click()
             scrollTo(device, "设置时间段").click()
             repeat(3) { index ->
                 val confirm = device.wait(Until.findObject(By.res("android", "button1")), 10_000)
@@ -241,14 +406,8 @@ class RoutineWorkflowInstrumentedTest {
             }
             assertTrue(device.wait(Until.hasObject(By.text("结束后下次打开应用会自动完成。")), 10_000))
             scrollTo(device, "保存待办").click()
-            var id = ""
-            withTimeout(10_000) {
-                while (id.isEmpty()) {
-                    id = app.database.records().snapshot(account).filter { it.kind == RecordKind.TASK && !it.deleted }
-                        .map(RecordCodec::task).firstOrNull { it.title == "虚构时间段待办" }?.id.orEmpty()
-                    if (id.isEmpty()) delay(100)
-                }
-            }
+            withTimeout(10_000) { while (app.database.records().find(account, RecordKind.SETTINGS,
+                    RecordCodec.taskMetadataId(id)) == null) delay(100) }
             val record = app.database.records().find(account, RecordKind.TASK, id)!!
             val meta = RecordCodec.taskMetadata(app.database.records().find(account, RecordKind.SETTINGS, RecordCodec.taskMetadataId(id))!!)
             assertNotNull(meta.endAt)
@@ -282,5 +441,33 @@ class RoutineWorkflowInstrumentedTest {
         device.dumpWindowHierarchy(File(cache, "routine-workflow-failed.xml"))
         device.takeScreenshot(File(cache, "routine-workflow-failed.png"))
         throw AssertionError("未找到文字：$text")
+    }
+
+    private fun scrollToDescription(device: UiDevice, description: String): UiObject2 {
+        repeat(10) {
+            device.wait(Until.findObject(By.desc(description)), 500)?.let { return it }
+            device.swipe(device.displayWidth / 2, device.displayHeight * 3 / 4,
+                device.displayWidth / 2, device.displayHeight / 3, 45)
+        }
+        val cache = ApplicationProvider.getApplicationContext<ManmanApplication>().cacheDir
+        device.dumpWindowHierarchy(File(cache, "weekday-ranges-failed.xml"))
+        device.takeScreenshot(File(cache, "weekday-ranges-failed.png"))
+        throw AssertionError("未找到操作：$description")
+    }
+
+    private fun waitForDescription(description: String, timeout: Long): AccessibilityNodeInfo? {
+        val end = android.os.SystemClock.elapsedRealtime() + timeout
+        while (android.os.SystemClock.elapsedRealtime() < end) {
+            findDescription(InstrumentationRegistry.getInstrumentation().uiAutomation.rootInActiveWindow, description)?.let { return it }
+            android.os.SystemClock.sleep(30)
+        }
+        return null
+    }
+
+    private fun findDescription(node: AccessibilityNodeInfo?, description: String): AccessibilityNodeInfo? {
+        if (node == null) return null
+        if (node.contentDescription?.toString() == description) return node
+        for (index in 0 until node.childCount) findDescription(node.getChild(index), description)?.let { return it }
+        return null
     }
 }

@@ -53,7 +53,9 @@ private fun taskDue(task: WorkTask): String = task.dueAt?.let { start ->
 @Composable
 fun WorkScreen(state: MainUiState, viewModel: MainViewModel, showNotices: Boolean, setShowNotices: (Boolean) -> Unit,
     back: () -> Unit, onNotice: (String) -> Unit, onTask: (String) -> Unit, onAddNotice: () -> Unit, onAddTask: () -> Unit,
-    onRoutines: () -> Unit) {
+    onRoutines: () -> Unit, recentCompletedIds: Set<String> = emptySet(),
+    calendarMonth: java.time.YearMonth? = null, selectedDay: LocalDate? = null, undated: Boolean = false,
+    onMonth: (java.time.YearMonth) -> Unit = {}, onSelectDay: (LocalDate?) -> Unit = {}, onUndated: () -> Unit = {}) {
     Column(Modifier.fillMaxSize()) {
         PageHeader(if (showNotices) "学校通知" else "全部待办", back = back, action = {
             Row {
@@ -75,7 +77,33 @@ fun WorkScreen(state: MainUiState, viewModel: MainViewModel, showNotices: Boolea
                 item { Spacer(Modifier.height(16.dp)) }
             }
         } else {
-            TaskAgenda(state, viewModel, rememberToday(), onlyToday = false, onTask = onTask, modifier = Modifier.weight(1f))
+            val today = rememberToday()
+            val month = calendarMonth ?: java.time.YearMonth.from(today)
+            val counts = rememberTaskCounts(state.tasks)
+            val header: @Composable () -> Unit = {
+                if (selectedDay == null && !undated) {
+                    TaskMonthCalendar(month, today, null, counts, onMonth, onSelectDay)
+                    val count = state.tasks.count { app.manman.teacher.domain.TaskOrdering.date(it) == null }
+                    if (count > 0) FeedbackTextButton(onClick = onUndated) { Text("未安排日期 · $count 项") }
+                } else {
+                    FeedbackTextButton(onClick = { onSelectDay(null) }) { Text("返回月历") }
+                    if (selectedDay != null) {
+                        val date = "${selectedDay.monthValue}月${selectedDay.dayOfMonth}日待办"
+                        SectionHeading(date)
+                        val count = counts[selectedDay]
+                        if (count != null) Text("${count.pending} 项待处理 · ${count.completed} 项已完成",
+                            style = MaterialTheme.typography.bodySmall)
+                    } else SectionHeading("未安排日期")
+                }
+            }
+            if (selectedDay != null || undated) TaskAgenda(state, viewModel, today, onlyToday = true, onTask = onTask,
+                modifier = Modifier.weight(1f), recentCompletedIds = recentCompletedIds, selectedDay = selectedDay ?: today,
+                undatedOnly = undated, header = header)
+            else LazyColumn(Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp)) {
+                item { header() }
+                item { Text("点选日期，查看或安排那一天的待办。", Modifier.padding(vertical = 16.dp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium) }
+            }
         }
     }
 }
@@ -195,6 +223,7 @@ fun TaskDetailScreen(task: WorkTask, state: MainUiState, viewModel: MainViewMode
             Block {
                 Text(task.title, style = MaterialTheme.typography.titleMedium)
                 key(task.done) { Text(if (task.done) "已完成" else "待处理", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                task.lessonPeriod?.let { Text("第 ${it} 节课", style = MaterialTheme.typography.bodyMedium) }
                 Text("时间：${taskDue(task)}", style = MaterialTheme.typography.bodySmall)
                 if (task.autoCompleted) Text("已按时间自动完成", style = MaterialTheme.typography.bodySmall)
                 if (task.timingNeedsReview) Text("时间段需要重新核对", style = MaterialTheme.typography.bodySmall)
@@ -231,6 +260,10 @@ fun TaskDetailScreen(task: WorkTask, state: MainUiState, viewModel: MainViewMode
 @Composable
 fun TaskEditorScreen(state: MainUiState, viewModel: MainViewModel, current: WorkTask?, editingId: String?, noticeId: String?, suggestion: NoticeSuggestionItem?,
     back: () -> Unit, onSaved: () -> Unit = back, defaultDate: LocalDate? = null) {
+    if (editingId == null && current == null && noticeId == null && suggestion == null) {
+        QuickTaskEditorScreen(state, viewModel, back, onSaved, defaultDate)
+        return
+    }
     var baseline by rememberSaveable(editingId, suggestion?.title) { mutableStateOf(current) }
     LaunchedEffect(editingId, current) {
         if (editingId != null && baseline == null && current != null) baseline = current
@@ -252,11 +285,12 @@ fun TaskEditorScreen(state: MainUiState, viewModel: MainViewModel, current: Work
     var due by rememberSaveable(existing?.id, suggestion?.title) { mutableStateOf(initialDue?.toString().orEmpty()) }
     var dueDate by rememberSaveable(existing?.id, suggestion?.title) { mutableStateOf(initialDate?.toString().orEmpty()) }
     var end by rememberSaveable(existing?.id, suggestion?.title) { mutableStateOf(existing?.endAt?.toString().orEmpty()) }
+    var lessonPeriod by rememberSaveable(existing?.id) { mutableStateOf(existing?.lessonPeriod) }
     var needsTimeReview by rememberSaveable(existing?.id, suggestion?.title) { mutableStateOf(existing?.timingNeedsReview == true) }
     var reminder by rememberSaveable(existing?.id, suggestion?.title) { mutableStateOf(existing?.remindAt?.toString().orEmpty()) }
     var timeError by remember { mutableStateOf<String?>(null) }
     var confirmBack by remember { mutableStateOf(false) }
-    val dirty = suggestion != null || title != existing?.title.orEmpty() || due != existing?.dueAt?.toString().orEmpty() ||
+    val dirty = lessonPeriod != existing?.lessonPeriod || suggestion != null || title != existing?.title.orEmpty() || due != existing?.dueAt?.toString().orEmpty() ||
         dueDate != initialDate?.toString().orEmpty() || end != existing?.endAt?.toString().orEmpty() ||
         needsTimeReview != (existing?.timingNeedsReview == true) || reminder != existing?.remindAt?.toString().orEmpty()
     fun leave() { if (dirty) confirmBack = true else back() }
@@ -318,6 +352,7 @@ fun TaskEditorScreen(state: MainUiState, viewModel: MainViewModel, current: Work
                         due = ""; dueDate = ""; end = ""; needsTimeReview = false; timeError = null
                     }) { Text("清除") }
                 }
+                if (existing != null) LessonPeriodPicker(lessonPeriod) { lessonPeriod = it }
                 FeedbackTextButton(onClick = ::chooseRange) { Text(if (end.isEmpty()) "设置时间段" else "调整时间段") }
                 FeedbackTextButton(onClick = {
                     val current = dueDate.takeIf(String::isNotBlank)?.let(LocalDate::parse) ?: LocalDate.now(AppTime.zone)
@@ -350,7 +385,7 @@ fun TaskEditorScreen(state: MainUiState, viewModel: MainViewModel, current: Work
                 title = title, dueAt = due.takeIf(String::isNotBlank)?.let(Instant::parse),
                 remindAt = reminder.takeIf(String::isNotBlank)?.let(Instant::parse),
                 dueDate = dueDate.takeIf(String::isNotBlank)?.let(LocalDate::parse),
-                endAt = end.takeIf(String::isNotBlank)?.let(Instant::parse), timingNeedsReview = needsTimeReview,
+                endAt = end.takeIf(String::isNotBlank)?.let(Instant::parse), timingNeedsReview = needsTimeReview, lessonPeriod = lessonPeriod,
                 routineException = existing?.routineException == true || (existing?.routineId != null &&
                     (changedTime || title.trim() != existing.title)),
                 autoCompletionSuppressed = if (changedTime) false else existing?.autoCompletionSuppressed == true)

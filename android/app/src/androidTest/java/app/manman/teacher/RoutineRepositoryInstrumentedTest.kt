@@ -8,6 +8,7 @@ import app.manman.teacher.data.ManmanDatabase
 import app.manman.teacher.data.RecordCodec
 import app.manman.teacher.data.RecordKind
 import app.manman.teacher.data.RoutineRule
+import app.manman.teacher.data.RoutineTime
 import app.manman.teacher.data.RoutineVersion
 import app.manman.teacher.data.WorkTask
 import app.manman.teacher.domain.AppTime
@@ -27,6 +28,67 @@ import java.util.UUID
 
 @RunWith(AndroidJUnit4::class)
 class RoutineRepositoryInstrumentedTest {
+    @Test fun aFutureRepeatingTaskShowsItsFirstOccurrenceWithoutWaitingForThatWeek() = runBlocking {
+        val app = ApplicationProvider.getApplicationContext<ManmanApplication>()
+        val database = Room.inMemoryDatabaseBuilder(app, ManmanDatabase::class.java).build()
+        try {
+            val repository = ClassRepository(database)
+            val owner = "future-rule-${UUID.randomUUID()}"
+            val now = Instant.now()
+            val start = now.atZone(AppTime.zone).toLocalDate().plusDays(45)
+            val version = RoutineVersion(start, "未来固定事项", setOf(start.dayOfWeek.value))
+            val rule = RoutineRule("future-rule", now, listOf(version))
+            repository.saveRoutine(owner, rule, now)
+            val first = database.records().find(owner, RecordKind.TASK, RoutinePlanner.occurrenceId(rule.id, start))
+            assertNotNull(first)
+            assertEquals(start, RecordCodec.task(first!!).dueDate)
+            assertNull(RecordCodec.task(first).dueAt)
+        } finally { database.close() }
+    }
+
+    @Test fun weekdayRangesCreateAndUpdateOnlyTheirOwnOccurrences() = runBlocking {
+        val app = ApplicationProvider.getApplicationContext<ManmanApplication>()
+        val database = Room.inMemoryDatabaseBuilder(app, ManmanDatabase::class.java).build()
+        try {
+            val repository = ClassRepository(database)
+            val dao = database.records()
+            val owner = "weekday-ranges-${UUID.randomUUID()}"
+            val now = Instant.now()
+            val first = now.atZone(AppTime.zone).toLocalDate()
+            val days = (0L..2L).map { first.plusDays(it).dayOfWeek.value }
+            val times = mapOf(days[0] to RoutineTime(LocalTime.of(8, 15), LocalTime.of(8, 45)),
+                days[1] to RoutineTime(LocalTime.of(9, 5), LocalTime.of(9, 50)), days[2] to RoutineTime())
+            val version = RoutineVersion(first, "虚构每周事项", days.toSet(), weekdayTimes = times)
+            val rule = RoutineRule("weekday-rule", now, listOf(version))
+            repository.saveRoutine(owner, rule, now)
+            fun id(offset: Long) = RoutinePlanner.occurrenceId(rule.id, first.plusDays(offset))
+            suspend fun task(offset: Long): WorkTask {
+                val raw = dao.find(owner, RecordKind.TASK, id(offset))!!
+                val meta = dao.find(owner, RecordKind.SETTINGS, RecordCodec.taskMetadataId(raw.id))!!
+                return RecordCodec.withMetadata(RecordCodec.task(raw), RecordCodec.taskMetadata(meta))
+            }
+            assertEquals(first.atTime(8, 15).atZone(AppTime.zone).toInstant(), task(0).dueAt)
+            assertEquals(first.plusDays(1).atTime(9, 50).atZone(AppTime.zone).toInstant(), task(1).endAt)
+            assertNull(task(2).dueAt)
+            assertNull(task(2).endAt)
+
+            val revised = version.copy(weekdayTimes = times + (days[1] to RoutineTime(LocalTime.of(10, 0), LocalTime.of(10, 30))))
+            repository.saveRoutine(owner, rule.copy(versions = listOf(revised)), now, rule)
+            assertEquals(first.atTime(8, 15).atZone(AppTime.zone).toInstant(), task(0).dueAt)
+            assertEquals(first.plusDays(1).atTime(10, 30).atZone(AppTime.zone).toInstant(), task(1).endAt)
+            assertNull(task(2).dueAt)
+            val result = repository.refreshAgenda(owner, first.plusDays(2).atTime(23, 0).atZone(AppTime.zone).toInstant())
+            assertEquals(2, result.earlierCompleted)
+            assertTrue(task(0).done)
+            assertTrue(task(1).done)
+            assertFalse(task(2).done)
+
+            val invalid = revised.copy(weekdayTimes = times + (days[0] to RoutineTime(LocalTime.of(8, 0), null)))
+            val error = runCatching { repository.saveRoutine(owner, rule.copy(versions = listOf(invalid)), now) }.exceptionOrNull()
+            assertTrue(error is IllegalArgumentException)
+        } finally { database.close() }
+    }
+
     @Test fun editingMergesIndependentUpdatesAndRejectsConflictingOrDeletedItems() = runBlocking {
         val app = ApplicationProvider.getApplicationContext<ManmanApplication>()
         val database = Room.inMemoryDatabaseBuilder(app, ManmanDatabase::class.java).build()

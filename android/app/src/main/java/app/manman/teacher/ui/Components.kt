@@ -181,8 +181,17 @@ fun LineIcon(name: String, modifier: Modifier = Modifier, color: Color = LocalCo
                 drawCircle(color, 2f * unit, Offset(4.5f * unit, 9f * unit), style = Stroke(stroke))
                 drawCircle(color, 2f * unit, Offset(19.5f * unit, 9f * unit), style = Stroke(stroke))
             }
+            "game" -> {
+                drawRoundRect(color, Offset(3f * unit, 6f * unit), Size(18f * unit, 12f * unit),
+                    androidx.compose.ui.geometry.CornerRadius(4f * unit), style = Stroke(stroke))
+                line(6f, 12f, 12f, 12f); line(9f, 9f, 9f, 15f)
+                drawCircle(color, unit, Offset(15f * unit, 10f * unit))
+                drawCircle(color, unit, Offset(18f * unit, 13f * unit))
+            }
+            "next" -> { line(5f, 12f, 19f, 12f); line(19f, 12f, 13f, 6f); line(19f, 12f, 13f, 18f) }
             "back" -> { line(19f, 12f, 5f, 12f); line(5f, 12f, 11f, 6f); line(5f, 12f, 11f, 18f) }
             "plus" -> { line(12f, 5f, 12f, 19f); line(5f, 12f, 19f, 12f) }
+            "close" -> { line(6f, 6f, 18f, 18f); line(18f, 6f, 6f, 18f) }
             "check" -> { line(5f, 12f, 10f, 17f); line(10f, 17f, 19f, 7f) }
             "edit" -> { line(5f, 19f, 8f, 18f); line(8f, 18f, 19f, 7f); line(19f, 7f, 16f, 4f); line(16f, 4f, 5f, 15f); line(5f, 15f, 5f, 19f) }
             "delete" -> { line(5f, 7f, 19f, 7f); line(9f, 4f, 15f, 4f); line(7f, 7f, 8f, 20f); line(8f, 20f, 16f, 20f); line(16f, 20f, 17f, 7f); line(10f, 10f, 10f, 17f); line(14f, 10f, 14f, 17f) }

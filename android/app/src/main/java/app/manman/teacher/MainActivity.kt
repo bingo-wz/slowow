@@ -12,10 +12,12 @@ import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.flow.MutableStateFlow
 import app.manman.teacher.ui.ManmanApp
+import app.manman.teacher.reminders.ForestReminderWorker
 import app.manman.teacher.ui.ManmanTheme
 import app.manman.teacher.ui.AppTextSizeProvider
 
 class MainActivity : ComponentActivity() {
+    private val forestRequested = MutableStateFlow(false)
     private val sharedContent = MutableStateFlow<IncomingShare?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -25,6 +27,7 @@ class MainActivity : ComponentActivity() {
             val images = savedInstanceState.getStringArrayList("shared_images").orEmpty()
             if (text != null || images.isNotEmpty()) IncomingShare(text, images) else null
         } else readShare(intent)
+        forestRequested.value = savedInstanceState?.getBoolean("open_forest") ?: (intent.action == ForestReminderWorker.OPEN_FOREST)
         enableEdgeToEdge()
         setContent {
             val fontState by (application as ManmanApplication).fonts.state.collectAsStateWithLifecycle()
@@ -33,7 +36,8 @@ class MainActivity : ComponentActivity() {
                 ManmanTheme(fontState.family) {
                     val model: MainViewModel = viewModel(factory = MainViewModel.factory(application as ManmanApplication))
                     val incoming by sharedContent.collectAsStateWithLifecycle()
-                    ManmanApp(model, incoming) { sharedContent.value = null }
+                    val openForest by forestRequested.collectAsStateWithLifecycle()
+                    ManmanApp(model, incoming, openForest, { forestRequested.value = false }) { sharedContent.value = null }
                 }
             }
         }
@@ -41,10 +45,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        if (intent.action == ForestReminderWorker.OPEN_FOREST) forestRequested.value = true
         readShare(intent)?.let { sharedContent.value = it }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
+        outState.putBoolean("open_forest", forestRequested.value)
         outState.putString("shared_text", sharedContent.value?.text)
         outState.putStringArrayList("shared_images", ArrayList(sharedContent.value?.images.orEmpty()))
         super.onSaveInstanceState(outState)

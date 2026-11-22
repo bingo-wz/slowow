@@ -1,16 +1,19 @@
 package app.manman.teacher.ui
 
 import android.app.DatePickerDialog
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
@@ -42,15 +45,23 @@ fun LeaveScreen(state: MainUiState, viewModel: MainViewModel, existing: Leave?, 
     var startText by rememberSaveable(existing?.id) { mutableStateOf((existing?.start ?: LocalDate.now(AppTime.zone)).toString()) }
     var endText by rememberSaveable(existing?.id) { mutableStateOf(existing?.end?.toString() ?: startText) }
     var periodName by rememberSaveable(existing?.id) { mutableStateOf(existing?.period?.name ?: LeavePeriod.ALL_DAY.name) }
+    var reason by rememberSaveable(existing?.id) { mutableStateOf(existing?.reason.orEmpty()) }
+    var confirmBack by remember { mutableStateOf(false) }
     var chooseStudent by remember { mutableStateOf(false) }
     val start = LocalDate.parse(startText)
     val end = LocalDate.parse(endText)
     val selectedStudent = students.firstOrNull { it.id == studentId }
+    val initialStart = existing?.start ?: LocalDate.now(AppTime.zone)
+    val dirty = studentId != existing?.studentId.orEmpty() || reason != existing?.reason.orEmpty() ||
+        start != initialStart || end != (existing?.end ?: initialStart) ||
+        periodName != (existing?.period ?: LeavePeriod.ALL_DAY).name
+    fun leave() { if (dirty) confirmBack = true else back() }
+    BackHandler(enabled = !chooseStudent) { leave() }
     fun chooseDate(date: LocalDate, onSelected: (LocalDate) -> Unit) {
         DatePickerDialog(context, { _, year, month, day -> onSelected(LocalDate.of(year, month + 1, day)) }, date.year, date.monthValue - 1, date.dayOfMonth).show()
     }
-    Column(Modifier.fillMaxSize()) {
-        PageHeader(if (existing == null) "记录请假" else "修改请假", back = back)
+    Column(Modifier.fillMaxSize().imePadding()) {
+        PageHeader(if (existing == null) "记录请假" else "修改请假", back = ::leave)
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             if (students.isEmpty()) {
                 EmptyHint("先添加学生", "有名单后就可以记录请假。", "添加学生", onAction = onAddStudents)
@@ -75,16 +86,21 @@ fun LeaveScreen(state: MainUiState, viewModel: MainViewModel, existing: Leave?, 
                                 selectedContainerColor = MaterialTheme.colorScheme.primaryContainer))
                     }
                 }
+                QuietTextField(reason, { reason = it.take(200) }, "请假原因（选填）", singleLine = false)
                 Text("全天或上午请假会加入当日不在校用餐名单，下午请假不计入。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         MainButton("保存请假", {
             val leave = Leave(existing?.id ?: UUID.randomUUID().toString(), studentId, start, end,
-                LeavePeriod.valueOf(periodName), existing?.recordedAt ?: Instant.now(), existing?.cancelled ?: false)
+                LeavePeriod.valueOf(periodName), existing?.recordedAt ?: Instant.now(), existing?.cancelled ?: false, reason)
             viewModel.saveLeave(leave, back)
         }, enabled = selectedStudent != null && !state.busy, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp))
         Spacer(Modifier.height(16.dp))
     }
+    if (confirmBack) AlertDialog(onDismissRequest = { confirmBack = false }, title = { Text("请假还没有保存") },
+        text = { Text("离开后会放弃本次修改。") },
+        confirmButton = { FeedbackTextButton(onClick = back) { Text("放弃修改") } },
+        dismissButton = { FeedbackTextButton(onClick = { confirmBack = false }) { Text("继续编辑") } })
     if (chooseStudent) StudentPicker(students, onDismiss = { chooseStudent = false }) { student ->
         studentId = student.id
         chooseStudent = false

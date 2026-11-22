@@ -70,11 +70,14 @@ fun TaskAgenda(
     onlyToday: Boolean,
     onTask: (String) -> Unit,
     modifier: Modifier = Modifier,
+    recentCompletedIds: Set<String> = emptySet(),
+    selectedDay: LocalDate = today,
+    undatedOnly: Boolean = false,
     header: @Composable () -> Unit = {},
     footer: LazyListScope.() -> Unit = {},
 ) {
     val grouped = state.tasks.groupBy(TaskOrdering::date)
-    val days: List<LocalDate?> = if (onlyToday) listOf(today) else
+    val days: List<LocalDate?> = if (undatedOnly) listOf(null) else if (onlyToday) listOf(selectedDay) else
         (grouped.keys.filterNotNull() + today).distinct().sorted() + if (null in grouped) listOf(null) else emptyList()
     var collapsed by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
     var expandedCompleted by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
@@ -98,7 +101,7 @@ fun TaskAgenda(
         val toId = (to.key as? String)?.takeIf { it.startsWith("task:") }?.removePrefix("task:")
         val source = state.tasks.firstOrNull { it.id == fromId }
         val target = state.tasks.firstOrNull { it.id == toId }
-        if (source != null && target != null && source.done == target.done && source.dueAt == target.dueAt &&
+        if (source != null && target != null && source.done == target.done &&
             TaskOrdering.date(source) == TaskOrdering.date(target)) {
             val day = TaskOrdering.date(source)
             val ids = tasksFor(day).map(WorkTask::id).toMutableList()
@@ -127,6 +130,8 @@ fun TaskAgenda(
                         Text(task.title, style = MaterialTheme.typography.bodyLarge,
                             color = if (task.done) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
                             textDecoration = if (task.done) TextDecoration.LineThrough else TextDecoration.None)
+                        task.lessonPeriod?.let { Text("第 ${it} 节课", style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         task.dueAt?.let {
                             val start = it.atZone(AppTime.zone).format(DateTimeFormatter.ofPattern("HH:mm"))
                             val end = task.endAt?.atZone(AppTime.zone)?.format(DateTimeFormatter.ofPattern("HH:mm"))
@@ -138,9 +143,8 @@ fun TaskAgenda(
                         if (task.timingNeedsReview) Text("时间段需要核对", color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodySmall)
                     }
-                    val lockedByTime = task.dueAt != null && tasks.none { it.id != task.id && it.dueAt == task.dueAt }
                     Box(Modifier.size(48.dp).draggableHandle(
-                        enabled = !state.busy && !lockedByTime,
+                        enabled = !state.busy,
                         onDragStarted = { dragging = true; lastDragTick[0] = SystemClock.elapsedRealtime(); feedback.dragStart() },
                         onDragStopped = {
                             dragging = false
@@ -148,9 +152,9 @@ fun TaskAgenda(
                                 viewModel.reorderTasks(TaskOrdering.date(task), ids)
                             }
                         },
-                    ).semantics { contentDescription = if (lockedByTime) "${task.title}按时间排序" else "拖动调整${task.title}的顺序" },
+                    ).semantics { contentDescription = "拖动调整${task.title}的顺序" },
                         contentAlignment = Alignment.Center) {
-                        LineIcon(if (lockedByTime) "clock" else "drag")
+                        LineIcon("drag")
                     }
                 }
             }
@@ -182,24 +186,24 @@ fun TaskAgenda(
                 }
             }
             if (!isCollapsed) {
-                if (tasks.isEmpty() && day == today) item(key = "empty-today") {
-                    Text("今天还没有待办", Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant,
+                if (tasks.isEmpty() && (onlyToday || day == today)) item(key = "empty-day") {
+                    Text(if (day == today) "今天还没有待办" else "这一天还没有待办", Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyMedium)
                 }
-                val pending = tasks.filterNot(WorkTask::done)
-                val completed = tasks.filter(WorkTask::done)
+                val pending = tasks.filter { !it.done || it.id in recentCompletedIds }
+                val completed = tasks.filter { it.done && it.id !in recentCompletedIds }
                 if (pending.isEmpty() && completed.isNotEmpty() && day == today) item(key = "all-done:$key") {
                     Text("今天的待办都完成啦", Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyMedium)
                 }
                 taskRows(pending)
                 if (completed.isNotEmpty()) {
-                    val expanded = key in expandedCompleted
+                    val expanded = (day != null && day < today) xor (key in expandedCompleted)
                     item(key = "completed:$key") {
                         Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)
                             .semantics { stateDescription = if (expanded) "已展开" else "已折叠" }
                             .feedbackClickable {
-                                expandedCompleted = ArrayList(if (expanded) expandedCompleted - key else expandedCompleted + key)
+                                expandedCompleted = ArrayList(if (key in expandedCompleted) expandedCompleted - key else expandedCompleted + key)
                             }.padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text("已完成 ${completed.size} 项", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)

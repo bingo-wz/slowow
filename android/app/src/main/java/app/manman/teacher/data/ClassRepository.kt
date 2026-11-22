@@ -14,7 +14,8 @@ import java.time.LocalDate
 import java.time.Instant
 import java.util.UUID
 
-data class AgendaRefreshResult(val changed: Boolean, val todayCompleted: Int, val earlierCompleted: Int)
+data class AgendaRefreshResult(val changed: Boolean, val todayCompleted: Int, val earlierCompleted: Int,
+    val todayTaskIds: List<String> = emptyList())
 
 class ClassRepository(private val database: ManmanDatabase) {
     private val dao = database.records()
@@ -38,10 +39,41 @@ class ClassRepository(private val database: ManmanDatabase) {
         dao.saveLocal(accountId, RecordKind.STUDENT, student.id, RecordCodec.student(student.copy(name = student.name.trim())))
     }
 
+    suspend fun saveForestProfile(accountId: String, profile: app.manman.teacher.domain.ForestProfile) =
+        database.withTransaction {
+            val student = dao.find(accountId, RecordKind.STUDENT, profile.studentId)
+            require(student != null && !student.deleted && RecordCodec.student(student).active) { "学生已不在班级名单。" }
+            val id = ForestRecords.profileId(profile.studentId)
+            val old = dao.find(accountId, RecordKind.SETTINGS, id)
+            require(old?.conflictVersion == null) { "请先在设置中核对课堂档案的同步冲突。" }
+            val original = old?.takeUnless(LocalRecord::deleted)?.let(ForestRecords::profile)
+            val note = profile.note.trim()
+            require(note.length <= 200) { "互动备注最多 200 字。" }
+            val since = if (profile.group == app.manman.teacher.domain.ForestGroup.CLASS) null
+                else original?.watchSince ?: LocalDate.now(AppTime.zone)
+            val payload = ForestRecords.encode(profile.copy(note = note, watchSince = since))
+            if (old == null || old.deleted || old.payload != payload) dao.saveLocal(accountId, RecordKind.SETTINGS, id, payload)
+        }
+
+    suspend fun setForestInteraction(accountId: String, studentId: String, marked: Boolean) =
+        database.withTransaction {
+            val student = dao.find(accountId, RecordKind.STUDENT, studentId)
+            require(student != null && !student.deleted && RecordCodec.student(student).active) { "学生已不在班级名单。" }
+            val day = LocalDate.now(AppTime.zone)
+            val id = ForestRecords.interactionId(studentId, day)
+            val old = dao.find(accountId, RecordKind.SETTINGS, id)
+            require(old?.conflictVersion == null) { "请先在设置中核对互动记录的同步冲突。" }
+            if ((old != null && !old.deleted) != marked) {
+                dao.saveLocal(accountId, RecordKind.SETTINGS, id,
+                    ForestRecords.encode(app.manman.teacher.domain.ForestInteraction(studentId, day)), deleted = !marked)
+            }
+        }
+
     suspend fun saveLeave(accountId: String, leave: Leave) {
         require(!leave.end.isBefore(leave.start)) { "结束日期不能早于开始日期。" }
         require(leave.end.toEpochDay() - leave.start.toEpochDay() <= 366) { "一次请假最多记录 367 天。" }
-        dao.saveLocal(accountId, RecordKind.LEAVE, leave.id, RecordCodec.leave(leave))
+        require(leave.reason.trim().length <= 200) { "请假原因最多 200 字。" }
+        dao.saveLocal(accountId, RecordKind.LEAVE, leave.id, RecordCodec.leave(leave.copy(reason = leave.reason.trim())))
     }
 
     suspend fun deleteCancelledLeave(accountId: String, id: String) {
@@ -227,6 +259,7 @@ class ClassRepository(private val database: ManmanDatabase) {
 
     suspend fun saveTask(accountId: String, task: WorkTask, expected: WorkTask? = null) {
         require(task.title.isNotBlank() && task.title.length <= 100) { "请填写不超过 100 个字的待办。" }
+        require(task.lessonPeriod == null || task.lessonPeriod in 1..12) { "请选择有效的课节。" }
         require(!task.timingNeedsReview) { "时间段需要重新设置或清除后才能保存。" }
         require(task.endAt == null || (task.dueAt != null && task.endAt > task.dueAt)) { "结束时间应晚于开始时间。" }
         database.withTransaction {
@@ -249,6 +282,7 @@ class ClassRepository(private val database: ManmanDatabase) {
                 require(!time.needsReview) { "时间段需要重新设置或清除后才能保存。" }
                 val merged = current.copy(title = title, dueAt = time.start, dueDate = time.date, endAt = time.end,
                     timingNeedsReview = time.needsReview, remindAt = merge(expected.remindAt, draft.remindAt, current.remindAt),
+                    lessonPeriod = merge(expected.lessonPeriod, draft.lessonPeriod, current.lessonPeriod),
                     routineException = current.routineException || (current.routineId != null &&
                         (title != current.title || time != timing(current))),
                     autoCompletionSuppressed = if (time != timing(current)) false else current.autoCompletionSuppressed)
@@ -308,7 +342,7 @@ class ClassRepository(private val database: ManmanDatabase) {
             return
         }
         val hasMetadata = previous != null || task.endAt != null || task.routineId != null || task.showMealList ||
-            task.autoCompleted || task.autoCompletionSuppressed
+            task.autoCompleted || task.autoCompletionSuppressed || task.lessonPeriod != null
         if (hasMetadata) {
             val payload = RecordCodec.taskMetadata(RecordCodec.metadataFor(task))
             if (previous == null || previous.deleted || previous.payload != payload) {
@@ -323,8 +357,10 @@ class ClassRepository(private val database: ManmanDatabase) {
         rule.versions.forEach { version ->
             require(version.title.isNotBlank() && version.title.length <= 100) { "请填写不超过 100 个字的安排名称。" }
             require(version.weekdays.isNotEmpty() && version.weekdays.all { it in 1..7 }) { "请至少选择一个星期。" }
-            require((version.start == null && version.end == null) ||
-                (version.start != null && version.end != null && version.end > version.start)) { "结束时间应晚于开始时间。" }
+            fun valid(time: RoutineTime) = (time.start == null && time.end == null) ||
+                (time.start != null && time.end != null && time.end > time.start)
+            require(valid(RoutineTime(version.start, version.end)) && version.weekdayTimes.keys.all { it in version.weekdays } &&
+                version.weekdayTimes.values.all(::valid)) { "星期或时间无效，结束时间应晚于开始时间。" }
         }
         database.withTransaction {
             val id = RecordCodec.routineRecordId(rule.id)
@@ -369,6 +405,7 @@ class ClassRepository(private val database: ManmanDatabase) {
             val today = openedAt.atZone(AppTime.zone).toLocalDate()
             var todayCompleted = 0
             var earlierCompleted = 0
+            val todayTaskIds = mutableListOf<String>()
             var changed = generated.isNotEmpty()
             val records = dao.snapshot(accountId)
             val metadata = records.filter { it.kind == RecordKind.SETTINGS && it.id.startsWith(RecordCodec.TASK_METADATA_PREFIX) }
@@ -384,12 +421,15 @@ class ClassRepository(private val database: ManmanDatabase) {
                     (task.id in generated && task.routineId?.let { (ruleUpdatedAt[it] ?: Long.MAX_VALUE) <= openedAt.toEpochMilli() } == true)
                 if (eligibleAtOpen && RoutinePlanner.shouldAutoComplete(task, openedAt)) {
                     writeTask(accountId, task.copy(done = true, autoCompleted = true))
-                    if (task.endAt!!.atZone(AppTime.zone).toLocalDate() == today && celebrateToday) todayCompleted++
+                    if (task.endAt!!.atZone(AppTime.zone).toLocalDate() == today && celebrateToday) {
+                        todayCompleted++
+                        todayTaskIds.add(task.id)
+                    }
                     else earlierCompleted++
                     changed = true
                 }
             }
-            AgendaRefreshResult(changed, todayCompleted, earlierCompleted)
+            AgendaRefreshResult(changed, todayCompleted, earlierCompleted, todayTaskIds)
         }
 
     private suspend fun reconcileRoutines(accountId: String, now: Instant): Set<String> {
@@ -404,7 +444,9 @@ class ClassRepository(private val database: ManmanDatabase) {
         val generated = mutableSetOf<String>()
         val planned = mutableMapOf<String, RoutineOccurrence>()
         rules.forEach { rule ->
-            RoutinePlanner.occurrences(rule, rule.versions.minOf(RoutineVersion::effectiveFrom), horizon).forEach { occurrence ->
+            val firstDate = rule.versions.minOf(RoutineVersion::effectiveFrom)
+            val ruleHorizon = maxOf(horizon, firstDate.plusDays(7))
+            RoutinePlanner.occurrences(rule, firstDate, ruleHorizon).forEach { occurrence ->
                 planned[occurrence.id] = occurrence
                 val record = records[occurrence.id]
                 if (record == null) {
