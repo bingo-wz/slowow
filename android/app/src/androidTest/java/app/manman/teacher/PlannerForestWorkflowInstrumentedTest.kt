@@ -32,6 +32,7 @@ import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
 import java.util.UUID
@@ -49,15 +50,21 @@ class PlannerForestWorkflowInstrumentedTest {
     }
 
     @Test fun tomorrowCanBePlannedFromHomeAndHistoryStaysInMonthCalendar() = runBlocking {
-        val (app, owner) = session()
+        assumeTrue(InstrumentationRegistry.getArguments().getString("teacherFixture") == "1")
+        val app = ApplicationProvider.getApplicationContext<ManmanApplication>()
+        app.auth.restore()
+        val owner = requireNotNull(app.auth.session.value?.accountId)
+        require(owner.startsWith("teacher-fixture-"))
         val today = LocalDate.now(AppTime.zone)
         val tomorrow = today.plusDays(1)
         val yesterday = today.minusDays(1)
         ClassRepository(app.database).saveTask(owner, WorkTask("past", "昨日已完成的虚构待办", null, null, null,
             true, Instant.now(), yesterday))
         ActivityScenario.launch(MainActivity::class.java).use {
-            find(day(tomorrow)).click()
-            find(By.desc("新建待办")).click()
+            if (today.dayOfWeek == DayOfWeek.SUNDAY) click(By.desc("下一周"))
+            click(day(tomorrow))
+            find(By.text("${tomorrow.monthValue}月${tomorrow.dayOfMonth}日待办"))
+            click(By.desc("新建待办"))
             val field = find(By.clazz("android.widget.EditText"))
             field.text = "明天的课堂计划"
             device.pressBack()
@@ -72,7 +79,11 @@ class PlannerForestWorkflowInstrumentedTest {
             }
             visible(By.text("明天的课堂计划"))
             visible(By.text("第 2 节课"))
-            visible(By.desc("全部待办")).click()
+            device.waitForIdle()
+            click(By.text("回到今天"))
+            find(By.text("今日待办"))
+            assertFalse(device.hasObject(By.text("明天的课堂计划")))
+            click(By.desc("全部待办"))
             find(By.text("全部待办"))
             assertFalse(device.hasObject(By.text("昨日已完成的虚构待办")))
             if (today.month != yesterday.month) find(By.desc("上个月")).click()

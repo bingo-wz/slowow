@@ -41,6 +41,11 @@ class WorkspaceLayoutInstrumentedTest {
         val account = "design-fixture-${UUID.randomUUID()}"
         val repository = ClassRepository(app.database)
         val today = LocalDate.now(AppTime.zone)
+        val monday = today.minusDays(today.dayOfWeek.value - 1L)
+        val weekDays = (0L..6L).map { offset ->
+            val date = monday.plusDays(offset)
+            By.descStartsWith("${date.year}年${date.monthValue}月${date.dayOfMonth}日 ")
+        }
         val now = Instant.now()
         val students = listOf(
             Student("fictional-a", "测试甲", normallyEatsAtSchool = false),
@@ -73,9 +78,21 @@ class WorkspaceLayoutInstrumentedTest {
                     assertFalse(Rect.intersects(menu, notice))
                     assertFalse(Rect.intersects(notice, settings))
                     assertFalse(Rect.intersects(all, add))
+                    assertTrue(device.hasObject(By.desc("上一周")))
+                    assertTrue(device.hasObject(By.desc("下一周")))
+                    val homeDates = weekDays.map { selector ->
+                        device.wait(Until.findObject(selector), 3_000).visibleBounds
+                    }
                     assertTrue(device.takeScreenshot(File(app.cacheDir, "workspace-home-$scale.png")))
                     device.findObject(By.text("记录")).click()
                     assertTrue(device.wait(Until.hasObject(By.desc("下一周")), 10_000))
+                    assertTrue(device.hasObject(By.desc("上一周")))
+                    weekDays.zip(homeDates).forEach { (selector, home) ->
+                        val records = device.wait(Until.findObject(selector), 3_000).visibleBounds
+                        assertEquals(home.left, records.left)
+                        assertEquals(home.right, records.right)
+                        assertEquals(home.height(), records.height())
+                    }
                     assertTrue(device.takeScreenshot(File(app.cacheDir, "workspace-records-$scale.png")))
                     val copyButton = By.desc("复制今日不在校用餐名单")
                     for (attempt in 1..5) {

@@ -18,6 +18,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.semantics
@@ -37,7 +38,11 @@ fun TodayScreen(state: MainUiState, viewModel: MainViewModel, onSettings: () -> 
     onSelectDay: (LocalDate) -> Unit = {}) {
     val today = rememberToday()
     val day = selectedDay ?: today
+    val dates = rememberWeekDates(day)
     val counts = rememberTaskCounts(state.tasks)
+    val badges = remember(dates, counts) {
+        dates.mapNotNull { date -> counts[date]?.let { date to it.badge() } }.toMap()
+    }
     val taskCount = counts[day]?.pending ?: 0
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -74,7 +79,7 @@ fun TodayScreen(state: MainUiState, viewModel: MainViewModel, onSettings: () -> 
             TaskAgenda(state, viewModel, today, onlyToday = true, onTask = onTask, recentCompletedIds = recentCompletedIds,
                 selectedDay = day, header = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    RollingTaskCalendar(today, day, counts, onSelectDay)
+                    WeekCalendar(dates, today, day, badges, onSelectDay)
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         LineIcon("todo", color = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(8.dp))

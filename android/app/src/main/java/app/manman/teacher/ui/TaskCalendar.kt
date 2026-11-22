@@ -2,9 +2,6 @@ package app.manman.teacher.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -35,18 +32,9 @@ internal fun rememberTaskCounts(tasks: List<WorkTask>): Map<LocalDate, CalendarC
 }
 
 @Composable
-internal fun RollingTaskCalendar(today: LocalDate, selected: LocalDate, counts: Map<LocalDate, CalendarCount>,
-    onSelectDay: (LocalDate) -> Unit) {
-    val dates = remember(today) { (-7L..7L).map(today::plusDays) }
-    val scroll = rememberLazyListState((dates.indexOf(selected) - 2).coerceAtLeast(0))
-    BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val width = ((maxWidth - 32.dp) / 5).coerceAtLeast(48.dp)
-        LazyRow(state = scroll, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(dates, key = { it.toEpochDay() }) { day ->
-                CalendarDate(day, today, selected, counts[day]?.badge(), Modifier.width(width), showWeekday = true) { onSelectDay(day) }
-            }
-        }
-    }
+internal fun rememberWeekDates(day: LocalDate): List<LocalDate> {
+    val start = day.minusDays(day.dayOfWeek.value - 1L)
+    return remember(start) { (0L..6L).map(start::plusDays) }
 }
 
 @Composable
@@ -58,10 +46,16 @@ internal fun WeekCalendar(dates: List<LocalDate>, today: LocalDate, selected: Lo
         val shortFormat = DateTimeFormatter.ofPattern("M月d日")
         val yearFormat = DateTimeFormatter.ofPattern("yyyy年M月d日")
         val startLabel = start.format(if (start.year == today.year) shortFormat else yearFormat)
-        val endLabel = end.format(if (end.year == start.year) shortFormat else yearFormat)
+        val endLabel = when {
+            end.year != start.year -> end.format(yearFormat)
+            end.month != start.month -> end.format(shortFormat)
+            else -> "${end.dayOfMonth}日"
+        }
         "$startLabel – $endLabel"
     }
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(Modifier.fillMaxWidth()
+        .background(MaterialTheme.colorScheme.surfaceContainer, MaterialTheme.shapes.medium)
+        .padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             ActionIcon("back", "上一周", { onSelectDay(selected.minusWeeks(1)) })
             Text(range, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
@@ -73,6 +67,11 @@ internal fun WeekCalendar(dates: List<LocalDate>, today: LocalDate, selected: Lo
                 CalendarDate(date, today, selected, badges[date], Modifier.weight(1f)) {
                     onSelectDay(date)
                 }
+            }
+        }
+        if (selected != today) {
+            FeedbackTextButton(onClick = { onSelectDay(today) }, modifier = Modifier.align(Alignment.End)) {
+                Text("回到今天")
             }
         }
     }
@@ -123,7 +122,7 @@ internal fun MonthCalendar(month: YearMonth, today: LocalDate,
 
 @Composable
 private fun CalendarDate(day: LocalDate, today: LocalDate, selectedDay: LocalDate?, badge: CalendarBadge?,
-    modifier: Modifier, showWeekday: Boolean = false, onClick: () -> Unit) {
+    modifier: Modifier, onClick: () -> Unit) {
     val picked = day == selectedDay
     val colors = MaterialTheme.colorScheme
     val label = "${day.year}年${day.monthValue}月${day.dayOfMonth}日 ${weeklyDayNames[day.dayOfWeek.value - 1]}"
@@ -135,8 +134,6 @@ private fun CalendarDate(day: LocalDate, today: LocalDate, selectedDay: LocalDat
         .semantics { contentDescription = label + (if (day == today) "，今天" else "") + summary; selected = picked }
         .padding(vertical = 4.dp), horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center) {
-        if (showWeekday) Text(if (day == today) "今天" else weeklyDayNames[day.dayOfWeek.value - 1],
-            style = MaterialTheme.typography.labelSmall, maxLines = 1)
         Text(day.dayOfMonth.toString(), style = MaterialTheme.typography.bodyMedium, maxLines = 1)
         val labelText = when {
             badge == null || badge.count == 0 -> " "

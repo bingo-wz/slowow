@@ -52,8 +52,7 @@ fun RecordsScreen(state: MainUiState, viewModel: MainViewModel, onLeave: () -> U
     val names = remember(state.students) { state.students.associate { it.id to it.name } }
     val today = rememberToday()
     val day = selectedDay ?: today
-    val weekStart = day.minusDays((day.dayOfWeek.value - 1).toLong())
-    val dates = remember(weekStart) { (0L..6L).map(weekStart::plusDays) }
+    val dates = rememberWeekDates(day)
     val absentPeople = remember(day, state.students, state.leaves) { MealAbsenceRules.forDate(day, state.students, state.leaves) }
     val context = LocalContext.current
     val markings = remember(state.markings) { state.markings.groupBy { it.createdAt.atZone(AppTime.zone).toLocalDate() } }
@@ -70,14 +69,11 @@ fun RecordsScreen(state: MainUiState, viewModel: MainViewModel, onLeave: () -> U
         }.toMap()
     }
     Column(Modifier.fillMaxSize()) {
-        PageHeader("记录", action = {
-            if (day != today) FeedbackTextButton(onClick = { onDay(null) }) { Text("回到今天") }
-            ActionIcon("todo", "待办日历", onCalendar)
-        })
+        PageHeader("记录", action = { ActionIcon("todo", "待办日历", onCalendar) })
         key(day) {
             LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 item {
-                    Box(Modifier.padding(horizontal = 8.dp)) {
+                    Box(Modifier.padding(horizontal = 24.dp)) {
                         WeekCalendar(dates, today, day, badges) { date -> onDay(date.takeUnless { it == today }) }
                     }
                 }
