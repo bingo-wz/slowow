@@ -69,11 +69,6 @@ internal fun WeekCalendar(dates: List<LocalDate>, today: LocalDate, selected: Lo
                 }
             }
         }
-        if (selected != today) {
-            FeedbackTextButton(onClick = { onSelectDay(today) }, modifier = Modifier.align(Alignment.End)) {
-                Text("回到今天")
-            }
-        }
     }
 }
 
@@ -127,6 +122,11 @@ private fun CalendarDate(day: LocalDate, today: LocalDate, selectedDay: LocalDat
     val colors = MaterialTheme.colorScheme
     val label = "${day.year}年${day.monthValue}月${day.dayOfMonth}日 ${weeklyDayNames[day.dayOfWeek.value - 1]}"
     val summary = badge?.let { "，${it.description}" }.orEmpty()
+    val dateColor = when {
+        picked -> colors.onPrimaryContainer
+        day == today -> colors.primary
+        else -> colors.onSurface
+    }
     Column(modifier.heightIn(min = 48.dp)
         .background(if (picked) colors.primaryContainer else if (day == today) colors.surfaceContainerHigh else colors.surfaceContainerLow,
             MaterialTheme.shapes.small)
@@ -134,7 +134,7 @@ private fun CalendarDate(day: LocalDate, today: LocalDate, selectedDay: LocalDat
         .semantics { contentDescription = label + (if (day == today) "，今天" else "") + summary; selected = picked }
         .padding(vertical = 4.dp), horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center) {
-        Text(day.dayOfMonth.toString(), style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+        Text(day.dayOfMonth.toString(), style = MaterialTheme.typography.bodyMedium, color = dateColor, maxLines = 1)
         val labelText = when {
             badge == null || badge.count == 0 -> " "
             badge.count > 99 -> "99+"
